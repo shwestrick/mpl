@@ -35,6 +35,9 @@ struct
   fun casRef r (old, new) =
     (MLton.Parallel.compareAndSwap r (old, new) = old)
 
+  fun casArray (a, i) (old, new) =
+    (MLton.Parallel.arrayCompareAndSwap (a, i) (old, new) = old)
+
   fun decrementHitsZero (x : int ref) : bool =
     faa (x, ~1) = 1
 
@@ -129,48 +132,72 @@ struct
   type worker_local_data =
     { queue : (unit -> unit) Queue.t
     , schedThread : Thread.t option ref
-    , waiters : MM.t
-    , lifeline : int ref
+    , lifelines : int array
     }
+
+  (* Lifelines array are the children in the lifeline tree. ~1 is empty slot,
+   * and ~2 is closed slot. These have limited capacity, but we don't expect
+   * them to fill up too much.
+   *
+   * For now, I'm doing P slots, so each processor gets their own. But could
+   * optimize this to use fewer memory locations.
+   *)
+
+  val NO_LIFELINE = ~1
+  val REJECT_LIFELINE = ~2
 
   fun wldInit p : worker_local_data =
     { queue = Queue.new ()
     , schedThread = ref NONE
-    , waiters = MM.new 100
-    , lifeline = ref p
+    , lifelines = Array.array (P, NO_LIFELINE)
     }
 
   val workerLocalData = Vector.tabulate (P, wldInit)
 
-  fun waiters p = #waiters (vectorSub (workerLocalData, p))
-
-  fun getLifeline p =
-    !(#lifeline (vectorSub (workerLocalData, p)))
-
-  fun setLifeline p q =
-    #lifeline (vectorSub (workerLocalData, p)) := q
-
-  fun representative p =
-    let
-      val x = getLifeline p
-    in
-      if x < 0 orelse x = p then p
-      else representative x
-    end
-
   fun rejectLifelines p =
     let
-      val _ = MM.freeze (waiters p)
-      val children = MM.removeContents (waiters p)
-      fun resetLifeline child =
-        if getLifeline child < 0
-        then resetLifeline child
-        else setLifeline child child
+      val slots = #lifelines (vectorSub (workerLocalData, p))
+
+      (* loop through slots, and set them all to reject *)
+      fun loop i =
+        if i >= Array.length slots then
+          ()
+        else if Array.sub (slots, i) = NO_LIFELINE then
+          if casArray (slots, i) (NO_LIFELINE, REJECT_LIFELINE) then
+            loop (i+1)
+          else
+            (* this would be a "send signal to wake up" incident *)
+            (Array.update (slots, i, REJECT_LIFELINE); loop (i+1))
+        else
+          (* this would be a "send signal to wake up" incident *)
+          (Array.update (slots, i, REJECT_LIFELINE); loop (i+1))
     in
-      List.app resetLifeline children
+      loop 0
     end
 
-  fun acceptLifelines p = MM.thaw (waiters p)
+  fun acceptLifelines p =
+    let
+      val slots = #lifelines (vectorSub (workerLocalData, p))
+    in
+      Array.modify (fn _ => NO_LIFELINE) slots
+    end
+
+  fun addLifeline me them =
+    let
+      val slots = #lifelines (vectorSub (workerLocalData, them))
+    in
+      if Array.sub (slots, me) = REJECT_LIFELINE then
+        false
+      else
+        casArray (slots, me) (NO_LIFELINE, me)
+    end
+
+  fun checkLifelineStillThere me them =
+    let
+      val slots = #lifelines (vectorSub (workerLocalData, them))
+    in
+      Array.sub (slots, me) = me
+    end
 
   fun setQueueDepth p d =
     let
@@ -338,63 +365,46 @@ struct
         in if other < myId then other else other+1
         end
 
-      fun spinWait () =
-        ( OS.Process.sleep (Time.fromMilliseconds 1)
-        ; if getLifeline myId = myId
-          then ()
-          else spinWait ()
+      fun spinWait friend =
+        ( OS.Process.sleep (Time.fromMicroseconds 500)
+        ; if checkLifelineStillThere myId friend
+          then spinWait friend
+          else ()
         )
 
-      fun chill friend =
-        if friend = myId orelse getLifeline friend <> friend then
-          false
-        else
-          let
-            val _ = MM.freeze (waiters myId)
-            val _ = setLifeline myId ~1
-            val success =
-              if MM.insert (waiters friend) myId then
-                (setLifeline myId friend; spinWait (); true)
-              else
-                false
-          in
-            MM.thaw (waiters myId);
-            setLifeline myId myId;
-            success
-          end
+      fun tryChill () =
+        if myId = 0 then false else
+        let
+          (* TODO: pick a process that is active. *)
+          val friend = SMLNJRandom.randRange (0, myId-1) myRand
+        in
+          if addLifeline myId friend then
+            (spinWait friend; true)
+          else
+            false
+        end
 
       fun request idleTimer =
         let
-          fun loop (tries, trigger, delay) it =
-            ( if tries mod (P * 100) <> 0 then () else
-                OS.Process.sleep (Time.fromNanoseconds (LargeInt.fromInt (P * 100)))
-
-            ; if tries >= trigger then
-                let
-                  val newDelay =
-                    if chill (representative (randomOtherId ())) then
-                      Int.max (10, delay div 2)
-                    else
-                      2 * delay
-                  val newTrigger =
-                    SMLNJRandom.randRange (10, newDelay) myRand
-                in
-                  loop (0, newTrigger, newDelay) (tickTimer idleTimer)
-                end
+          fun loop tries it =
+            if tries mod 5 = 0 then
+              if tryChill () then
+                loop 0 (tickTimer idleTimer)
               else
-                let
-                  val friend = representative (randomOtherId ())
-                in
-                  case trySteal friend of
-                    NONE => loop (tries+1, trigger, delay) (tickTimer idleTimer)
-                  | SOME (task, depth) => (task, depth, tickTimer idleTimer)
-                end
-            )
-
-          val initDelay = P * 100
-          val initTrigger = SMLNJRandom.randRange (10, initDelay) myRand
+                loop (tries+1) (tickTimer idleTimer)
+            else if tries >= P * 100 then
+              (OS.Process.sleep (Time.fromNanoseconds (LargeInt.fromInt (P * 100)));
+               loop 0 (tickTimer idleTimer))
+            else
+              let
+                val friend = randomOtherId ()
+              in
+                case trySteal friend of
+                  NONE => loop (tries+1) (tickTimer idleTimer)
+                | SOME (task, depth) => (task, depth, tickTimer idleTimer)
+              end
         in
-          loop (0, initTrigger, initDelay) idleTimer
+          loop 0 idleTimer
         end
 
       (* ------------------------------------------------------------------- *)

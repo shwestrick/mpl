@@ -6,6 +6,7 @@ sig
   val new: int -> t
   val insert: t -> elem -> bool
   val size: t -> int
+  val capacity: t -> int
   val removeContents: t -> elem list
   val freeze: t -> unit
   val thaw: t -> unit
@@ -42,6 +43,8 @@ struct
     in
       if r < 0 then ~(r+1) else r
     end
+
+  fun capacity (slots, _) = Array.length slots
 
   fun toggle (slots, next) =
     let
