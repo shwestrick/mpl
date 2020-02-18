@@ -15,8 +15,6 @@ struct
 
   structure Queue = DequeABP (*ArrayQueue*)
 
-  structure MM = MultiMailbox
-
   structure Thread = MLton.Thread.Basic
   fun threadSwitch t =
     ( Thread.atomicBegin ()

@@ -20,7 +20,6 @@ local
 
   FORK_JOIN.sig
   DequeABP.sml
-  MultiMailbox.sml
   Scheduler.sml
 in
   structure ForkJoin
