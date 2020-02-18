@@ -80,6 +80,15 @@ bool GC_TryToTerminate(GC_state s) {
 
   Trace0(EVENT_HALT_WAIT);
 
+  for (uint32_t p = 0; p < s->numberOfProcs; p++) {
+    if (p != myself) {
+      // Wake them up if needed. It's okay to not take the lock because we
+      // don't need to guarantee atomicity of other accesses at this point;
+      // just need to get them to exit and clean up
+      pthread_cond_broadcast(&(s->procStates[p].sleepCond));
+    }
+  }
+
   /* Wait for the other processors to terminate. */
   for (uint32_t p = 0; p < s->numberOfProcs; p++)
     if (p != myself)

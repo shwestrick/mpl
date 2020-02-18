@@ -186,6 +186,18 @@ structure Parallel =
 
       val arrayCompareAndSwap =
         _prim "Array_cas": 'a array * SeqIndex.int * 'a * 'a -> 'a;
+
+      val takeSleepLock =
+        _import "GC_takeSleepLock" runtime private: Word32.word -> unit;
+
+      val releaseSleepLock =
+        _import "GC_releaseSleepLock" runtime private: Word32.word -> unit;
+
+      val signalSleepLock =
+        _import "GC_signalSleepLock" runtime private: Word32.word -> unit;
+
+      val sleepOnLock =
+        _import "GC_sleepOnLock" runtime private: Word32.word -> unit;
    end
 
 structure Platform =

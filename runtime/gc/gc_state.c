@@ -318,3 +318,25 @@ void GC_registerQueueBot(uint32_t processor, pointer botPointer) {
   assert(processor < s->numberOfProcs);
   s->procStates[processor].wsQueueBot = pointerToObjptr(botPointer, NULL);
 }
+
+void GC_takeSleepLock(uint32_t processor) {
+  GC_state s = pthread_getspecific (gcstate_key);
+  pthread_mutex_lock(&(s->procStates[processor].sleepLock));
+}
+
+void GC_releaseSleepLock(uint32_t processor) {
+  GC_state s = pthread_getspecific (gcstate_key);
+  pthread_mutex_unlock(&(s->procStates[processor].sleepLock));
+}
+
+void GC_signalSleepLock(uint32_t processor) {
+  GC_state s = pthread_getspecific (gcstate_key);
+  pthread_cond_signal(&(s->procStates[processor].sleepCond));
+}
+
+void GC_sleepOnLock(uint32_t processor) {
+  GC_state s = pthread_getspecific (gcstate_key);
+  GC_MayTerminateThread(s);
+  pthread_cond_wait(&(s->procStates[processor].sleepCond),
+                    &(s->procStates[processor].sleepLock));
+}

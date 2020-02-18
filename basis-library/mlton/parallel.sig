@@ -71,6 +71,11 @@ signature MLTON_PARALLEL =
 
     exception Return
 
+    val takeSleepLock: int -> unit
+    val releaseSleepLock: int -> unit
+    val signalSleepLock: int -> unit
+    val sleepOnLock: int -> unit
+
     (**
      * The number of processors available in the system
      *)

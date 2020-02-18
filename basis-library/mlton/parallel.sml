@@ -78,6 +78,11 @@ structure MLtonParallel:> MLTON_PARALLEL =
 
     exception Return
 
+    val takeSleepLock = Prim.takeSleepLock o Word32.fromInt
+    val releaseSleepLock = Prim.releaseSleepLock o Word32.fromInt
+    val signalSleepLock = Prim.signalSleepLock o Word32.fromInt
+    val sleepOnLock = Prim.sleepOnLock o Word32.fromInt
+
     val numberOfProcessors: int = Int32.toInt Prim.numberOfProcessors
     val processorNumber: unit -> int = Int32.toInt o Prim.processorNumber
 

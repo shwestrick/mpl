@@ -77,6 +77,8 @@ struct GC_state {
   struct GC_sourceMaps sourceMaps;
   pointer stackBottom; /* Bottom of stack in current thread. */
   pthread_t self; /* thread owning the GC_state */
+  pthread_mutex_t sleepLock;
+  pthread_cond_t sleepCond;
   uint32_t terminationLeader;
   struct GC_sysvals sysvals;
   struct GC_vectorInit *vectorInits;
@@ -135,6 +137,11 @@ PRIVATE void GC_setSignalHandlerThreads (GC_state s, pointer p);
 PRIVATE void GC_registerQueue(uint32_t processor, pointer queuePointer);
 PRIVATE void GC_registerQueueTop(uint32_t processor, pointer topPointer);
 PRIVATE void GC_registerQueueBot(uint32_t processor, pointer botPointer);
+
+PRIVATE void GC_takeSleepLock(uint32_t processor);
+PRIVATE void GC_releaseSleepLock(uint32_t processor);
+PRIVATE void GC_signalSleepLock(uint32_t processor);
+PRIVATE void GC_sleepOnLock(uint32_t processor);
 
 #endif /* (defined (MLTON_GC_INTERNAL_BASIS)) */
 

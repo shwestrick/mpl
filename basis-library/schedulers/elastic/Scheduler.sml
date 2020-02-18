@@ -277,7 +277,10 @@ struct
     let
       val c' = !(next c)
     in
+      MLton.Parallel.takeSleepLock c;
       next c := ~2;
+      MLton.Parallel.signalSleepLock c;
+      MLton.Parallel.releaseSleepLock c;
       if c' < 0 then () else wakeChildren c'
     end
 
@@ -479,33 +482,29 @@ struct
         in if other < myId then other else other+1
         end
 
-      fun spinWait () =
-        ( OS.Process.sleep (Time.fromMilliseconds 1)
-        ; if checkLifelineStillThere myId
-          then spinWait ()
-          else ()
-        )
-
-      fun tryChill () =
-        if myId = 0 then false else
+      fun wait () =
         let
-          val friend = randomOtherId ()
+          fun loop () =
+            if checkLifelineStillThere myId then
+              (MLton.Parallel.sleepOnLock myId; loop ())
+            else
+              ()
         in
-          if addLifeline myId friend then
-            (spinWait (); true)
-          else
-            false
+          MLton.Parallel.takeSleepLock myId;
+          loop ();
+          MLton.Parallel.releaseSleepLock myId
         end
+
+      fun tryChill friend =
+        if addLifeline myId friend then
+          (wait (); true)
+        else
+          false
 
       fun request idleTimer =
         let
           fun loop tries it =
-            if tries mod 5 = 0 then
-              if tryChill () then
-                loop 0 (tickTimer idleTimer)
-              else
-                loop (tries+1) (tickTimer idleTimer)
-            else if tries >= P * 100 then
+            if tries >= P * 100 then
               (OS.Process.sleep (Time.fromNanoseconds (LargeInt.fromInt (P * 100)));
                loop 0 (tickTimer idleTimer))
             else
@@ -513,8 +512,12 @@ struct
                 val friend = randomOtherId ()
               in
                 case trySteal friend of
-                  NONE => loop (tries+1) (tickTimer idleTimer)
-                | SOME (task, depth) => (task, depth, tickTimer idleTimer)
+                  SOME (task, depth) => (task, depth, tickTimer idleTimer)
+                | NONE =>
+                    if tryChill friend then
+                      loop 0 (tickTimer idleTimer)
+                    else
+                      loop (tries+1) (tickTimer idleTimer)
               end
         in
           loop 0 idleTimer
