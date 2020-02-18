@@ -126,78 +126,192 @@ struct
   end
 
   (* ========================================================================
+   * LIFELINES AND STATE MANAGEMENT
+   *)
+
+  fun hashWord w =
+    let
+      open Word64
+      infix 2 >> infix 2 << infix 2 xorb infix 2 andb
+      val v = w * 0w3935559000370003845 + 0w2691343689449507681
+      val v = v xorb (v >> 0w21)
+      val v = v xorb (v << 0w37)
+      val v = v xorb (v >> 0w4)
+      val v = v * 0w4768777513237032717
+      val v = v xorb (v << 0w20)
+      val v = v xorb (v >> 0w41)
+      val v = v xorb (v << 0w5)
+    in
+      v
+    end
+
+  (* computes 1 + floor(log_2(n)), i.e. the number of
+   * bits required to represent n in binary *)
+  fun log2 n = if (n < 1) then 0 else 1 + log2(n div 2)
+
+  val bitsChild = log2 P
+  val childMask = Word64.- (Word64.<< (0w1, Word.fromInt bitsChild), 0w1)
+
+  val bitsPriority = 64 - bitsChild - 1
+  val priorityMask = Word64.- (Word64.<< (0w1, Word.fromInt bitsPriority), 0w1)
+
+  type pstate = Word64.word
+  type state = {rejecting: bool, priority: Word64.word, firstChild: int option}
+
+  (* to pack and unpack states, we use this layout:
+   *
+   *   rejecting bit    priority       firstChild
+   *        |              |                |
+   *        v              v                v
+   *      +---+---------------------+--------------+
+   *      | 1 |   64 - log2 P - 1   |    log2 P    |
+   *      +---+---------------------+--------------+
+   *
+   * and when there is no firstChild, we pack with a value that
+   * is >= P (the number of processors).
+   *)
+  fun packState ({rejecting, priority, firstChild}: state) : pstate =
+    let
+      open Word64
+      infix 2 >> << orb
+
+      val rej = if rejecting then 0w1 else 0w0
+      val prio =
+        if priority <= priorityMask then priority
+        else raise Fail "tried to pack priority outside valid range"
+      val child =
+        case firstChild of
+          NONE => fromInt P
+        | SOME p =>
+            if Int.>= (p, 0) andalso Int.< (p, P) then fromInt p
+            else raise Fail "tried to pack child number outside valid range"
+
+      val ps: pstate = rej
+      val ps = (ps << Word.fromInt bitsPriority) orb prio
+      val ps = (ps << Word.fromInt bitsChild) orb child
+    in
+      ps
+    end
+
+  fun unpackState (ps: pstate) : state =
+    let
+      open Word64
+      infix 2 >> << orb andb
+      val firstChild =
+        let val x = toInt (ps andb childMask)
+        in if Int.>= (x, P) then NONE else SOME x
+        end
+
+      val ps = ps >> Word.fromInt bitsChild
+      val priority = ps andb priorityMask
+
+      val ps = ps >> Word.fromInt bitsPriority
+      val rejecting = (ps andb 0w1) = 0w1
+    in
+      {rejecting=rejecting, priority=priority, firstChild=firstChild}
+    end
+
+  (* ========================================================================
    * SCHEDULER LOCAL DATA
    *)
 
   type worker_local_data =
     { queue : (unit -> unit) Queue.t
     , schedThread : Thread.t option ref
-    , lifelines : int array
+    , state : pstate ref
+    , next : int ref     (* processor id of next child in parent's list of
+                          * children, or ~1 if end of list, or ~2 if not in list *)
     }
 
-  (* Lifelines array are the children in the lifeline tree. ~1 is empty slot,
-   * and ~2 is closed slot. These have limited capacity, but we don't expect
-   * them to fill up too much.
-   *
-   * For now, I'm doing P slots, so each processor gets their own. But could
-   * optimize this to use fewer memory locations.
-   *)
-
-  val NO_LIFELINE = ~1
-  val REJECT_LIFELINE = ~2
+  fun initialState p =
+    { rejecting = false
+    , priority = Word64.andb (priorityMask, hashWord (Word64.fromInt p))
+    , firstChild = NONE
+    }
 
   fun wldInit p : worker_local_data =
     { queue = Queue.new ()
     , schedThread = ref NONE
-    , lifelines = Array.array (P, NO_LIFELINE)
+    , state = ref (packState (initialState p))
+    , next = ref ~2
     }
 
   val workerLocalData = Vector.tabulate (P, wldInit)
 
+  fun state p = #state (vectorSub (workerLocalData, p))
+  fun next p = #next (vectorSub (workerLocalData, p))
+
+  fun addLifeline me them =
+    let
+      val myState = unpackState (!(state me))
+
+      fun loop () =
+        let
+          val theirPackedState = !(state them)
+          val theirState = unpackState theirPackedState
+          val theirPackedState' = packState
+            { rejecting = false
+            , priority = #priority theirState
+            , firstChild = SOME me }
+          val nogo =
+            (#rejecting theirState) orelse
+            #priority myState >= #priority theirState
+        in
+          next me := Option.getOpt (#firstChild theirState, ~1);
+          if nogo then
+            false
+          else if casRef (state them) (theirPackedState, theirPackedState') then
+            true
+          else
+            loop ()
+        end
+
+    in
+      if loop () then
+        true
+      else
+        (next me := ~2; false)
+    end
+
+  fun wakeChildren c =
+    let
+      val c' = !(next c)
+    in
+      next c := ~2;
+      if c' < 0 then () else wakeChildren c'
+    end
+
   fun rejectLifelines p =
     let
-      val slots = #lifelines (vectorSub (workerLocalData, p))
-
-      (* loop through slots, and set them all to reject *)
-      fun loop i =
-        if i >= Array.length slots then
-          ()
-        else if Array.sub (slots, i) = NO_LIFELINE then
-          if casArray (slots, i) (NO_LIFELINE, REJECT_LIFELINE) then
-            loop (i+1)
-          else
-            (* this would be a "send signal to wake up" incident *)
-            (Array.update (slots, i, REJECT_LIFELINE); loop (i+1))
-        else
-          (* this would be a "send signal to wake up" incident *)
-          (Array.update (slots, i, REJECT_LIFELINE); loop (i+1))
+      val packedState = !(state p)
+      val {firstChild, priority, ...} = unpackState packedState
+      val packedState' = packState
+        { rejecting = true
+        , priority = priority
+        , firstChild = NONE
+        }
     in
-      loop 0
+      if casRef (state p) (packedState, packedState') then
+        Option.app wakeChildren firstChild
+      else
+        rejectLifelines p
     end
 
   fun acceptLifelines p =
     let
-      val slots = #lifelines (vectorSub (workerLocalData, p))
+      val {priority, ...} = unpackState (!(state p))
+      val newPriority =
+        Word64.andb (priorityMask, hashWord (priority + Word64.fromInt p))
+      val newState = packState
+        { rejecting = false
+        , priority = newPriority
+        , firstChild = NONE
+        }
     in
-      Array.modify (fn _ => NO_LIFELINE) slots
+      state p := newState
     end
 
-  fun addLifeline me them =
-    let
-      val slots = #lifelines (vectorSub (workerLocalData, them))
-    in
-      if Array.sub (slots, me) = REJECT_LIFELINE then
-        false
-      else
-        casArray (slots, me) (NO_LIFELINE, me)
-    end
-
-  fun checkLifelineStillThere me them =
-    let
-      val slots = #lifelines (vectorSub (workerLocalData, them))
-    in
-      Array.sub (slots, me) = me
-    end
+  fun checkLifelineStillThere p = !(next p) <> ~2
 
   fun setQueueDepth p d =
     let
@@ -365,21 +479,20 @@ struct
         in if other < myId then other else other+1
         end
 
-      fun spinWait friend =
-        ( OS.Process.sleep (Time.fromMicroseconds 500)
-        ; if checkLifelineStillThere myId friend
-          then spinWait friend
+      fun spinWait () =
+        ( OS.Process.sleep (Time.fromMilliseconds 1)
+        ; if checkLifelineStillThere myId
+          then spinWait ()
           else ()
         )
 
       fun tryChill () =
         if myId = 0 then false else
         let
-          (* TODO: pick a process that is active. *)
-          val friend = SMLNJRandom.randRange (0, myId-1) myRand
+          val friend = randomOtherId ()
         in
           if addLifeline myId friend then
-            (spinWait friend; true)
+            (spinWait (); true)
           else
             false
         end
@@ -487,6 +600,8 @@ struct
         acquireWork ();
         die (fn _ => "scheduler bug: scheduler exited acquire-work loop")
       end
+
+  (* val _ = print ("hello from elastic\n") *)
 
 end
 
