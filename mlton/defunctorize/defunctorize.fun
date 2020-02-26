@@ -1044,18 +1044,26 @@ fun defunctorize (CoreML.Program.T {decs}) =
                      end
                 | PrimApp {args, prim, targs} =>
                      let
-                        val args = Vector.map (args, #1 o loopExp)
+                        val argsWithTypes = Vector.map (args, loopExp)
+                        val (args, tys) = Vector.unzip argsWithTypes
                         datatype z = datatype Prim.Name.t
+                        val () = ()
                      in
                         if (case Prim.name prim of
                                Real_rndToReal (s1, s2) =>
                                   RealSize.equals (s1, s2)
                              | String_toWord8Vector => true
-                             | Word_extdToWord (s1, s2, _) => 
+                             | Word_extdToWord (s1, s2, _) =>
                                   WordSize.equals (s1, s2)
                              | Word8Vector_toString => true
                              | _ => false)
                            then Vector.first args
+                        else if (case Prim.name prim of ParWrap => true | _ => false) then
+                           Xexp.app {func = Vector.sub (args, 0),
+                                     arg = Xexp.tuple
+                                        {exps = Vector.new2 (Vector.sub (args, 1), Vector.sub (args, 2)),
+                                         ty = Xtype.tuple (Vector.new2 (Vector.sub (tys, 1), Vector.sub (tys, 2)))},
+                                     ty = ty}
                         else
                            Xexp.primApp {args = args,
                                          prim = Prim.map (prim, loopTy),
