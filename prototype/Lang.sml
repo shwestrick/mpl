@@ -84,13 +84,13 @@ struct
     | IfZero _ => true
     | _ => false
 
-  fun step (e: exp): exp =
+  fun tryStep (e: exp): exp =
     case e of
       App (e1, e2) =>
         if canStep e1 then
-          App (step e1, e2)
+          App (tryStep e1, e2)
         else if canStep e2 then
-          App (e1, step e2)
+          App (e1, tryStep e2)
         else
           let
             val {func, arg, body} = deFunc e1
@@ -100,9 +100,9 @@ struct
 
     | Op (name, f, e1, e2) =>
         if canStep e1 then
-          Op (name, f, step e1, e2)
+          Op (name, f, tryStep e1, e2)
         else if canStep e2 then
-          Op (name, f, e1, step e2)
+          Op (name, f, e1, tryStep e2)
         else
           let
             val n1 = deNum e1
@@ -113,7 +113,7 @@ struct
 
     | IfZero (e1, e2, e3) =>
         if canStep e1 then
-          IfZero (step e1, e2, e3)
+          IfZero (tryStep e1, e2, e3)
         else
           let
             val n = deNum e1
@@ -121,16 +121,18 @@ struct
             if n = 0 then e2 else e3
           end
 
-    | _ => raise Fail "step"
+    | _ => raise Fail "tryStep"
+
+  fun step e =
+    if canStep e then SOME (tryStep e) else NONE
 
   fun exec e =
     let
       val _ = print (toString e ^ "\n")
     in
-      if canStep e then
-        exec (step e)
-      else
-        print "DONE\n"
+      case step e of
+        NONE => print "DONE\n"
+      | SOME e' => exec e'
     end
 
   val fact: exp =
