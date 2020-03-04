@@ -1,8 +1,9 @@
 structure Lang =
 struct
 
-  structure I = Identifier
-  type var = I.t
+  structure Id = Identifier
+  type var = Id.t
+  type typ = Type.t
 
   datatype exp =
     Var of var
@@ -20,12 +21,12 @@ struct
 
   fun toString e =
     case e of
-      Var v => I.toString v
+      Var v => Id.toString v
     | Num n => Int.toString n
     | App (e1, e2) =>
         toStringP e1 ^ " " ^ toStringP e2
     | Func {func, arg, body} =>
-        "fun " ^ I.toString func ^ " " ^ I.toString arg ^ " is " ^ toString body
+        "fun " ^ Id.toString func ^ " " ^ Id.toString arg ^ " is " ^ toString body
     | Op (name, _, e1, e2) =>
         toStringP e1 ^ " " ^ name ^ " " ^ toStringP e2
     | IfZero (e1, e2, e3) =>
@@ -48,27 +49,14 @@ struct
   fun deFunc e = case e of Func x => x | _ => raise Fail "deFunc"
   fun deNum e = case e of Num x => x | _ => raise Fail "deNum"
 
-  (* fun rename x e =
-    let
-      val x' = I.renew x
-
-      fun loop e =
-        case e of
-          Var v => if I.eq (v, x) then Var x' else Var v
-        | App (e1, e2) => App (loop e1, loop e2)
-        | Func {func, arg, body} =>
-    in
-
-    end *)
-
   (* substitute [e'/x]e *)
   fun subst (e', x) e =
     let
-      (* val _ = print ("[" ^ toString e' ^ " / " ^ I.toString x ^ "]" ^ toString e ^ "\n") *)
+      (* val _ = print ("[" ^ toString e' ^ " / " ^ Id.toString x ^ "]" ^ toString e ^ "\n") *)
       val doit = subst (e', x)
     in
       case e of
-        Var v => if I.eq (v, x) then e' else Var v
+        Var v => if Id.eq (v, x) then e' else Var v
       | App (e1, e2) => App (doit e1, doit e2)
       | Func {func, arg, body} =>
           Func {func = func, arg = arg, body = doit body}
@@ -137,8 +125,8 @@ struct
 
   val fact: exp =
     let
-      val f = I.new "fact"
-      val n = I.new "n"
+      val f = Id.new "fact"
+      val n = Id.new "n"
       val body =
         IfZero (Var n, Num 1, OpMul (Var n, App (Var f, OpSub (Var n, Num 1))))
     in
