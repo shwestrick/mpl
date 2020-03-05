@@ -1,0 +1,4 @@
+#!/bin/bash
+
+echo "/usr/bin/time -v ./$1 @mpl procs 72 -- 5 38 41"
+/usr/bin/time -v ./$1 @mpl procs 72 -- 5 38 41
