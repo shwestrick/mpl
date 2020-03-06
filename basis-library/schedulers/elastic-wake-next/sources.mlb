@@ -12,11 +12,13 @@ local
     structure ArraySliceExtra = ArraySlice
   end
 
-  local
+  (*local
     $(SML_LIB)/smlnj-lib/Util/smlnj-lib.mlb
   in
     structure SMLNJRandom = Random
-  end
+  end*)
+
+  SimpleRandom.sml
 
   FORK_JOIN.sig
   DequeABP.sml

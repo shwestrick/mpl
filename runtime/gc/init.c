@@ -428,6 +428,7 @@ int GC_init (GC_state s, int argc, char **argv) {
   s->self = pthread_self();
   pthread_cond_init(&(s->sleepCond), NULL);
   pthread_mutex_init(&(s->sleepLock), NULL);
+  sem_init(&(s->sem), 0, 0);
   s->terminationLeader = INVALID_PROCESSOR_NUMBER;
   s->sysvals.pageSize = GC_pageSize ();
   s->sysvals.physMem = GC_physMem ();
@@ -550,6 +551,7 @@ void GC_duplicate (GC_state d, GC_state s) {
   d->self = s->self;
   pthread_cond_init(&(d->sleepCond), NULL);
   pthread_mutex_init(&(d->sleepLock), NULL);
+  sem_init(&(d->sem), 0, 0);
   d->terminationLeader = INVALID_PROCESSOR_NUMBER;
   d->sysvals.pageSize = s->sysvals.pageSize;
   d->sysvals.physMem = s->sysvals.physMem;

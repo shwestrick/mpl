@@ -76,6 +76,9 @@ signature MLTON_PARALLEL =
     val signalSleepLock: int -> unit
     val sleepOnLock: int -> unit
 
+    val semWait: int -> unit
+    val semPost: int -> unit
+
     (**
      * The number of processors available in the system
      *)

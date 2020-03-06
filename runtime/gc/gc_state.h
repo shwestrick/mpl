@@ -79,6 +79,7 @@ struct GC_state {
   pthread_t self; /* thread owning the GC_state */
   pthread_mutex_t sleepLock;
   pthread_cond_t sleepCond;
+  sem_t sem;
   uint32_t terminationLeader;
   struct GC_sysvals sysvals;
   struct GC_vectorInit *vectorInits;
@@ -142,6 +143,9 @@ PRIVATE void GC_takeSleepLock(uint32_t processor);
 PRIVATE void GC_releaseSleepLock(uint32_t processor);
 PRIVATE void GC_signalSleepLock(uint32_t processor);
 PRIVATE void GC_sleepOnLock(uint32_t processor);
+
+PRIVATE void GC_semPost(uint32_t processor);
+PRIVATE void GC_semWait(uint32_t processor);
 
 #endif /* (defined (MLTON_GC_INTERNAL_BASIS)) */
 

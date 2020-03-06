@@ -210,6 +210,36 @@ struct
     end
 
   (* ========================================================================
+   * CONCURRENT RANDOM SET
+   *)
+
+  structure CRS =
+  struct
+    (* Pad to avoid false sharing. Initially, everyone is awake *)
+    val members: Word8.word array = Array.array (128*P, 0w1)
+
+    fun insert id =
+      Array.update (members, 128*id, 0w1)
+
+    fun remove id =
+      Array.update (members, 128*id, 0w0)
+
+    fun sampleRandomOther myId (myRand: SimpleRandom.t): int =
+      let
+        fun loop () =
+          let
+            val p = SimpleRandom.boundedInt (0, P-1) myRand
+            val p = if p < myId then p else p+1
+          in
+            if Array.sub (members, 128*p) = 0w0 then loop () else p
+          end
+      in
+        loop ()
+      end
+
+  end
+
+  (* ========================================================================
    * SCHEDULER LOCAL DATA
    *)
 
@@ -217,8 +247,6 @@ struct
     { queue : (unit -> unit) Queue.t
     , schedThread : Thread.t option ref
     , state : pstate ref
-    , alarm : bool ref   (* normally false. when it goes off (set to true), it's
-                          * time for the processor to wake up. *)
     , next : int ref     (* processor id of next child in parent's list of
                           * children, or ~1 if end of list *)
     }
@@ -233,7 +261,6 @@ struct
     { queue = Queue.new ()
     , schedThread = ref NONE
     , state = ref (packState (initialState p))
-    , alarm = ref false
     , next = ref ~1
     }
 
@@ -241,7 +268,6 @@ struct
 
   fun state p = #state (vectorSub (workerLocalData, p))
   fun next p = #next (vectorSub (workerLocalData, p))
-  fun alarm p = #alarm (vectorSub (workerLocalData, p))
 
   fun addLifeline me them =
     let
@@ -277,20 +303,13 @@ struct
 
   fun wakeUpAFew n c =
     if n <= 1 then
-      ( MLton.Parallel.takeSleepLock c
-      ; alarm c := true
-      ; MLton.Parallel.signalSleepLock c
-      ; MLton.Parallel.releaseSleepLock c
-      )
+      MLton.Parallel.semPost c
     else
       let
         val c' = !(next c)
       in
         if c' < 0 then () else next c := ~1;
-        MLton.Parallel.takeSleepLock c;
-        alarm c := true;
-        MLton.Parallel.signalSleepLock c;
-        MLton.Parallel.releaseSleepLock c;
+        MLton.Parallel.semPost c;
         if c' < 0 then () else wakeUpAFew (n-1) c'
       end
 
@@ -472,8 +491,8 @@ struct
   fun setupSchedLoop () =
     let
       val myId = myWorkerId ()
-      val myRand = SMLNJRandom.rand (0, myId)
-      (*val myRand = SimpleRandom.rand myId*)
+      (* val myRand = SMLNJRandom.rand (0, myId) *)
+      val myRand = SimpleRandom.rand myId
       val mySchedThread = Thread.current ()
       val {queue=myQueue, schedThread, ...} =
         vectorSub (workerLocalData, myId)
@@ -484,25 +503,23 @@ struct
 
       (* ------------------------------------------------------------------- *)
 
+
+      fun markAsleep () = CRS.remove myId
+      fun markAwake () = CRS.insert myId
       fun randomOtherId () =
-        (*let val other = SimpleRandom.boundedInt (0, P-1) myRand*)
-        let val other = SMLNJRandom.randRange (0, P-2) myRand
+        CRS.sampleRandomOther myId myRand
+
+      (*
+      fun markAsleep () = ()
+      fun markAwake () = ()
+      fun randomOtherId () =
+        let val other = SimpleRandom.boundedInt (0, P-1) myRand
+        (* let val other = SMLNJRandom.randRange (0, P-2) myRand *)
         in if other < myId then other else other+1
         end
+      *)
 
-      fun wait () =
-        let
-          fun loop () =
-            if not (!(alarm myId)) then
-              (MLton.Parallel.sleepOnLock myId; loop ())
-            else
-              (* time to wake up! but first reset the alarm. *)
-              alarm myId := false
-        in
-          MLton.Parallel.takeSleepLock myId;
-          loop ();
-          MLton.Parallel.releaseSleepLock myId
-        end
+      fun wait () = MLton.Parallel.semWait myId
 
       fun tryWakeNext () =
         let
@@ -514,30 +531,45 @@ struct
 
       fun tryChill friend =
         if addLifeline myId friend then
-          ( wait ()
+          ( markAsleep ()
+          ; wait ()
+          ; markAwake ()
           ; tryWakeNext ()
           ; true
           )
         else
           false
 
-      fun request idleTimer =
+      fun stealLoopChill idleTimer =
+        let
+          fun loop it =
+            let
+              val friend = randomOtherId ()
+            in
+              case trySteal friend of
+                SOME (task, depth) => (task, depth, tickTimer idleTimer)
+              | NONE =>
+                  if tryChill friend then
+                    stealLoopDontChill (tickTimer idleTimer)
+                  else
+                    loop (tickTimer idleTimer)
+            end
+        in
+          loop idleTimer
+        end
+
+      and stealLoopDontChill idleTimer =
         let
           fun loop tries it =
-            if tries >= P * 100 then
-              (OS.Process.sleep (Time.fromNanoseconds (LargeInt.fromInt (P * 100)));
-               loop 0 (tickTimer idleTimer))
+            if tries >= 50 then
+              stealLoopChill idleTimer
             else
               let
                 val friend = randomOtherId ()
               in
                 case trySteal friend of
                   SOME (task, depth) => (task, depth, tickTimer idleTimer)
-                | NONE =>
-                    if tryChill friend then
-                      loop 0 (tickTimer idleTimer)
-                    else
-                      loop (tries+1) (tickTimer idleTimer)
+                | NONE => loop (tries+1) (tickTimer idleTimer)
               end
         in
           loop 0 idleTimer
@@ -548,7 +580,7 @@ struct
       fun acquireWork () : unit =
         let
           val idleTimer = startTimer myId
-          val (task, depth, idleTimer') = request idleTimer
+          val (task, depth, idleTimer') = stealLoopDontChill idleTimer
           val taskThread = Thread.copy prototypeThread
         in
           if depth >= 1 then () else

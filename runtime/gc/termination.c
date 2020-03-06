@@ -86,6 +86,8 @@ bool GC_TryToTerminate(GC_state s) {
       // don't need to guarantee atomicity of other accesses at this point;
       // just need to get them to exit and clean up
       pthread_cond_broadcast(&(s->procStates[p].sleepCond));
+
+      sem_post(&(s->procStates[p].sem));
     }
   }
 

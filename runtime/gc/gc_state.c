@@ -340,3 +340,14 @@ void GC_sleepOnLock(uint32_t processor) {
   pthread_cond_wait(&(s->procStates[processor].sleepCond),
                     &(s->procStates[processor].sleepLock));
 }
+
+void GC_semPost(uint32_t processor) {
+  GC_state s = pthread_getspecific(gcstate_key);
+  sem_post(&(s->procStates[processor].sem));
+}
+
+void GC_semWait(uint32_t processor) {
+  GC_state s = pthread_getspecific(gcstate_key);
+  GC_MayTerminateThread(s);
+  sem_wait(&(s->procStates[processor].sem));
+}

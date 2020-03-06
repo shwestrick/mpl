@@ -198,6 +198,12 @@ structure Parallel =
 
       val sleepOnLock =
         _import "GC_sleepOnLock" runtime private: Word32.word -> unit;
+
+      val semWait =
+        _import "GC_semWait" runtime private: Word32.word -> unit;
+
+      val semPost =
+        _import "GC_semPost" runtime private: Word32.word -> unit;
    end
 
 structure Platform =
