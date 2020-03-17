@@ -1,4 +1,11 @@
 Group is
   $/basis.cm
+  Hash.sml
+  KEY.sig
+  TABLE.sig
+  IntKey.sml
+  TreeTable.sml
+  TreeSet.sml
+  Graph.sml
   Identifier.sml
   Lang.sml

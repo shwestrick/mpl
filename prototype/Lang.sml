@@ -3,7 +3,7 @@ struct
 
   structure Id = Identifier
   type var = Id.t
-  type typ = Type.t
+  (* type typ = Type.t *)
 
   datatype exp =
     Var of var

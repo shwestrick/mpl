@@ -57,8 +57,12 @@ struct
 
   type t = typ
 
-  fun inferType (ord: Stamp.ord) (ctx: (typ * stamp) Ctx.t) (e: Lang.exp) (startTime: stamp)
-        : {ord: Stamp.ord, typ: typ, stamp: stamp, endTime: stamp} =
+  (* fun inferType
+        (ord: Stamp.ord)
+        (ctx: (typ * stamp) Ctx.t)
+        (e: Lang.exp)
+        (startTime: stamp)
+      : {ord: Stamp.ord, typ: typ, stamp: stamp, endTime: stamp} =
     case e of
       Lang.Num _ => {ord = ord, endTime = startTime, typ = Num, stamp = startTime}
     | Lang.Var v =>
@@ -70,7 +74,7 @@ struct
               else
                 raise Fail ("T-Var: could not establish " ^ Id.toString delta ^ " <= " Id.toString startTime)
         )
-    |
+    | *)
 
 
 
