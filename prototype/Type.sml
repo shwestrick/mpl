@@ -12,6 +12,7 @@ struct
     Num
   | Prod of (typ * stamp) * (typ * stamp)
   | Func of (typ * stamp) * (typ * stamp) * (StampGraph.t * stamp * stamp)
+  type t = typ
 
   fun sameShape (typ1, typ2) =
     case (typ1, typ2) of
@@ -21,7 +22,47 @@ struct
     | (Func ((a, _), (b, _), _), Func ((c, _), (d, _), _)) =>
         sameShape (a, c) andalso sameShape (b, d)
 
-  type t = typ
+  (* `extractOrd (typ, anchor) = D` is the same as the judgement
+   * the judgement `ord(typ@stamp, anchor) = D` in the paper. *)
+  fun extractOrd (typ, stamp, anchor) =
+    let
+      val newStuff =
+        if Id.eq (stamp, anchor) then
+          StampGraph.fromVertices [stamp]
+        else
+          StampGraph.fromEdges [(stamp, anchor)]
+    in
+      case typ of
+        Num => newStuff
+      | Func _ => newStuff
+      | Prod ((typ1, stamp1), (typ2, stamp2)) =>
+          let
+            val left = extractOrd (typ1, stamp1, stamp)
+            val right = extractOrd (typ2, stamp2, stamp)
+          in
+            unions [left, right, newStuff]
+          end
+    end
+
+  (* lift typ@stamp outside of [anchor0, anchor1] with respect to ord *)
+  fun liftType (ord, anchor0, anchor1) (typ, stamp) =
+    let
+      val stamp' =
+        if StampGraph.reachableFrom stamp anchor0 ord then
+          stamp
+        else
+          anchor1
+    in
+      case typ of
+        Num => (typ, stamp')
+      | Func _ => (typ, stamp')
+      | Prod (p1, p2) =>
+          ( Prod ( liftType (ord, anchor0, anchor1) p1
+                 , liftType (ord, anchor0, anchor1) p2
+                 )
+          , stamp'
+          )
+    end
 
   (* returns {ord, typ, stamp, endTime} where
    * expression e has type `typ@stamp`, evaluating between
@@ -123,6 +164,12 @@ struct
           , stamp = stamp3
           }
         end
+
+    (* | Lang.Func {func, arg, body} =>
+        let
+          val extracted = extractOrd
+        in
+        end *)
 
     | _ => raise Fail ("type inference cannot handle expression " ^
                        Lang.toString e)

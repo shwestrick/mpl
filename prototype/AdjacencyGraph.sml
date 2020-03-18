@@ -5,6 +5,7 @@ sig
   type e = v * v
 
   val empty: t
+  val fromVertices: v list -> t
   val fromEdges: e list -> t
   val vertices: t -> v list
   val edges: t -> e list
@@ -71,6 +72,9 @@ struct
     case Table.lookup u g of
       NONE => false
     | SOME nbrs => List.exists (fn x => veq (x, v)) nbrs
+
+  fun fromVertices verts =
+    List.foldr (fn (v, g) => insertVertex v g) empty verts
 
   fun fromEdges edges =
     List.foldr (fn (e, g) => insertEdge e g) empty edges
