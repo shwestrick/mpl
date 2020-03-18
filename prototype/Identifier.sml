@@ -5,6 +5,8 @@ sig
   val new: string -> t
   val renew: t -> t
   val eq: t * t -> bool
+  val compare: t * t -> order
+  val hash: t -> int
 
   val var: unit -> t
   val stamp: unit -> t
@@ -28,6 +30,9 @@ struct
   fun toString (name, c) = name ^ "_" ^ Int.toString c
 
   fun eq ((_, c1), (_, c2)) = c1 = c2
+
+  fun compare ((_, c1), (_, c2)) = Int.compare (c1, c2)
+  fun hash (_, c) = Hash.hash c
 
   fun var () = new "x"
   fun stamp () = new "d"

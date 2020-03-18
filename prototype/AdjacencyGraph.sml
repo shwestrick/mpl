@@ -1,4 +1,4 @@
-functor Graph (Vertex: KEY) :
+functor AdjacencyGraph (Vertex: KEY) :
 sig
   type t
   type v = Vertex.t
@@ -9,6 +9,8 @@ sig
   val vertices: t -> v list
   val edges: t -> e list
 
+  val toString: t -> string
+
   val neighbors: v -> t -> v list
 
   val insertVertex: v -> t -> t
@@ -18,6 +20,8 @@ sig
   val containsEdge: e -> t -> bool
 
   val reachableFrom: v -> v -> t -> bool
+
+  val union: t * t -> t
 end =
 struct
 
@@ -31,6 +35,9 @@ struct
   fun veq (u, v) = (Vertex.compare (u, v) = EQUAL)
 
   val empty = Table.empty
+
+  fun toString g =
+    Table.toString (fn vs => "[" ^ String.concatWith "," (List.map Vertex.toString vs) ^ "]") g
 
   fun vertices g = Table.keys g
   fun edges g =
@@ -93,5 +100,7 @@ struct
         FoundIt => true
       | _ => false
     end
+
+  fun union (g1, g2) = Table.unionWith (fn (vs1, vs2) => vs1 @ vs2) (g1, g2)
 
 end

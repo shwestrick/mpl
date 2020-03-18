@@ -8,6 +8,7 @@ struct
   datatype exp =
     Var of var
   | App of exp * exp
+  | Par of exp * exp
   | Func of {func: var, arg: var, body: exp}
   | Num of int
   | IfZero of exp * exp * exp
@@ -25,6 +26,8 @@ struct
     | Num n => Int.toString n
     | App (e1, e2) =>
         toStringP e1 ^ " " ^ toStringP e2
+    | Par (e1, e2) =>
+        toStringP e1 ^ " || " ^ toStringP e2
     | Func {func, arg, body} =>
         "fun " ^ Id.toString func ^ " " ^ Id.toString arg ^ " is " ^ toString body
     | Op (name, _, e1, e2) =>
@@ -35,6 +38,7 @@ struct
   and toStringP e =
     case e of
       App _ => parens (toString e)
+    | Par _ => parens (toString e)
     | Op _ => parens (toString e)
     | IfZero _ => parens (toString e)
     | _ => toString e
@@ -43,6 +47,7 @@ struct
     case e of
       Op _ => true
     | App _ => true
+    | Par (e1, e2) => canStep e1 orelse canStep e2
     | IfZero _ => true
     | _ => false
 
@@ -58,19 +63,13 @@ struct
       case e of
         Var v => if Id.eq (v, x) then e' else Var v
       | App (e1, e2) => App (doit e1, doit e2)
+      | Par (e1, e2) => Par (doit e1, doit e2)
       | Func {func, arg, body} =>
           Func {func = func, arg = arg, body = doit body}
       | Num n => Num n
       | Op (name, f, e1, e2) => Op (name, f, doit e1, doit e2)
       | IfZero (e1, e2, e3) => IfZero (doit e1, doit e2, doit e3)
     end
-
-  fun canStep e =
-    case e of
-      Op _ => true
-    | App _ => true
-    | IfZero _ => true
-    | _ => false
 
   fun tryStep (e: exp): exp =
     case e of
@@ -85,6 +84,14 @@ struct
           in
             subst (e1, func) (subst (e2, arg) body)
           end
+
+    | Par (e1, e2) =>
+        if canStep e1 then
+          Par (tryStep e1, e2)
+        else if canStep e2 then
+          Par (e1, tryStep e2)
+        else
+          raise Fail "tryStep Par"
 
     | Op (name, f, e1, e2) =>
         if canStep e1 then
@@ -131,6 +138,14 @@ struct
         IfZero (Var n, Num 1, OpMul (Var n, App (Var f, OpSub (Var n, Num 1))))
     in
       Func {func=f, arg=n, body=body}
+    end
+
+  val paradd: exp =
+    let
+      val left = OpAdd (Num 1, Num 2)
+      val right = OpAdd (Num 3, Num 4)
+    in
+      Par (left, right)
     end
 
 end

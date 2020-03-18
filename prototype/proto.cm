@@ -6,6 +6,7 @@ Group is
   IntKey.sml
   TreeTable.sml
   TreeSet.sml
-  Graph.sml
+  AdjacencyGraph.sml
   Identifier.sml
   Lang.sml
+  Type.sml
