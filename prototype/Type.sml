@@ -8,11 +8,27 @@ struct
   fun unions graphs = List.foldr StampGraph.union StampGraph.empty graphs
   type stamp = Id.t
 
+  structure Shape =
+  struct
+    datatype shape =
+      Num
+    | Prod of shape * shape
+    | Func of shape * shape
+
+    type t = shape
+  end
+
   datatype typ =
     Num
   | Prod of (typ * stamp) * (typ * stamp)
   | Func of (typ * stamp) * (typ * stamp) * (StampGraph.t * stamp * stamp)
   type t = typ
+
+  fun shapeOfTyp typ =
+    case typ of
+      Num => Shape.Num
+    | Prod ((a, _), (b, _)) => Shape.Prod (shapeOfTyp a, shapeOfTyp b)
+    | Func ((a, _), (b, _), _) => Shape.Func (shapeOfTyp a, shapeOfTyp b)
 
   fun sameShape (typ1, typ2) =
     case (typ1, typ2) of
@@ -64,9 +80,9 @@ struct
           )
     end
 
-  (* returns {ord, typ, stamp, endTime} where
-   * expression e has type `typ@stamp`, evaluating between
-   * startTime and endTime, and with new allocations `fresh` *)
+  (* returns {ord, typ, stamp, endTime} where expression e
+   * has type `typ@stamp`, and evaluates between startTime and endTime
+   * with new allocations `fresh` *)
   fun inferType (ord: StampGraph.t)
                 (ctx: (typ * stamp) IdTable.t)
                 (e: Lang.exp)
@@ -165,7 +181,7 @@ struct
           }
         end
 
-    (* | Lang.Func {func, arg, body} =>
+    (* | Lang.Func (func, arg, body) =>
         let
           val extracted = extractOrd
         in

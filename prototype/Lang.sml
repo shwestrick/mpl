@@ -9,7 +9,7 @@ struct
     Var of var
   | App of exp * exp
   | Par of exp * exp
-  | Func of {func: var, arg: var, body: exp}
+  | Func of var * var * exp (* function name, argument, function body *)
   | Num of int
   | IfZero of exp * exp * exp
   | Op of string * (int * int -> int) * exp * exp
@@ -28,7 +28,7 @@ struct
         toStringP e1 ^ " " ^ toStringP e2
     | Par (e1, e2) =>
         toStringP e1 ^ " || " ^ toStringP e2
-    | Func {func, arg, body} =>
+    | Func (func, arg, body) =>
         "fun " ^ Id.toString func ^ " " ^ Id.toString arg ^ " is " ^ toString body
     | Op (name, _, e1, e2) =>
         toStringP e1 ^ " " ^ name ^ " " ^ toStringP e2
@@ -64,8 +64,7 @@ struct
         Var v => if Id.eq (v, x) then e' else Var v
       | App (e1, e2) => App (doit e1, doit e2)
       | Par (e1, e2) => Par (doit e1, doit e2)
-      | Func {func, arg, body} =>
-          Func {func = func, arg = arg, body = doit body}
+      | Func (func, arg, body) => Func (func, arg, doit body)
       | Num n => Num n
       | Op (name, f, e1, e2) => Op (name, f, doit e1, doit e2)
       | IfZero (e1, e2, e3) => IfZero (doit e1, doit e2, doit e3)
@@ -80,7 +79,7 @@ struct
           App (e1, tryStep e2)
         else
           let
-            val {func, arg, body} = deFunc e1
+            val (func, arg, body) = deFunc e1
           in
             subst (e1, func) (subst (e2, arg) body)
           end
@@ -137,7 +136,7 @@ struct
       val body =
         IfZero (Var n, Num 1, OpMul (Var n, App (Var f, OpSub (Var n, Num 1))))
     in
-      Func {func=f, arg=n, body=body}
+      Func (f, n, body)
     end
 
   val paradd: exp =
