@@ -1,4 +1,5 @@
-structure Lang =
+(* Lang0 has no types. Just raw AST *)
+structure Lang0 =
 struct
 
   structure Id = Identifier

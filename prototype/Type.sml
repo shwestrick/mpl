@@ -85,18 +85,18 @@ struct
    * with new allocations `fresh` *)
   fun inferType (ord: StampGraph.t)
                 (ctx: (typ * stamp) IdTable.t)
-                (e: Lang.exp)
+                (e: Lang0.exp)
                 (startTime: stamp)
               : {fresh: StampGraph.t, typ: typ, stamp: stamp, endTime: stamp} =
     case e of
-      Lang.Num _ =>
+      Lang0.Num _ =>
         { fresh = StampGraph.empty
         , endTime = startTime
         , typ = Num
         , stamp = startTime
         }
 
-    | Lang.Var v =>
+    | Lang0.Var v =>
         ( case IdTable.lookup v ctx of
             NONE => raise Fail ("T-Var: " ^ Id.toString v ^ " not in scope")
           | SOME (tau, delta) =>
@@ -111,7 +111,7 @@ struct
                             ^ " <= " ^ Id.toString startTime)
         )
 
-    | Lang.Op (name, oper, e1, e2) =>
+    | Lang0.Op (name, oper, e1, e2) =>
         let
           val stamp0 = startTime
           val {fresh=fresh1, typ, endTime=stamp1, ...} =
@@ -129,7 +129,7 @@ struct
           }
         end
 
-    | Lang.IfZero (e1, e2, e3) =>
+    | Lang0.IfZero (e1, e2, e3) =>
         let
           val stamp0 = startTime
           val {fresh=fresh1, typ, endTime=stamp1, ...} =
@@ -156,7 +156,7 @@ struct
             )
         end
 
-    | Lang.Par (e1, e2) =>
+    | Lang0.Par (e1, e2) =>
         let
           val stamp0 = startTime
           val stamp1 = Id.stamp ()
@@ -181,13 +181,13 @@ struct
           }
         end
 
-    (* | Lang.Func (func, arg, body) =>
+    (* | Lang0.Func (func, arg, body) =>
         let
           val extracted = extractOrd
         in
         end *)
 
     | _ => raise Fail ("type inference cannot handle expression " ^
-                       Lang.toString e)
+                       Lang0.toString e)
 
 end

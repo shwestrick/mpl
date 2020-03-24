@@ -1,12 +1,12 @@
 Group is
   $/basis.cm
-  Hash.sml
-  KEY.sig
-  TABLE.sig
-  IntKey.sml
-  TreeTable.sml
-  TreeSet.sml
-  AdjacencyGraph.sml
+  lib/Hash.sml
+  lib/KEY.sig
+  lib/TABLE.sig
+  lib/IntKey.sml
+  lib/TreeTable.sml
+  lib/TreeSet.sml
+  lib/AdjacencyGraph.sml
   Identifier.sml
-  Lang.sml
+  Lang0.sml
   Type.sml
