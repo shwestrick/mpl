@@ -74,6 +74,7 @@ struct
   | Par of typ * exp * exp
   | Fst of typ * exp
   | Snd of typ * exp
+  | Let of typ * var * exp * exp
   | Func of typ * var * var * exp
   | IfZero of typ * exp * exp * exp
   | Num of typ * int
@@ -95,6 +96,8 @@ struct
         fold p (c (typ t, b)) e'
     | Snd (t, e') =>
         fold p (c (typ t, b)) e'
+    | Let (t, v, e1, e2) =>
+        fold p (fold p (c (var v, c (typ t, b))) e1) e2
     | Func (t, f, x, e') =>
         fold p (c (var x, c (var f, c (typ t, b)))) e'
     | IfZero (t, e1, e2, e3) =>
@@ -133,6 +136,11 @@ struct
     | (Snd (t1, x1), Snd (t2, x2)) =>
         Typ.equal (t1, t2) andalso
         equal (x1, x2)
+    | (Let (t1, v1, a1, b1), Let (t2, v2, a2, b2)) =>
+        Typ.equal (t1, t2) andalso
+        Id.eq (v1, v2) andalso
+        equal (a1, a2) andalso
+        equal (b1, b2)
     | (Func (t1, f1, a1, b1), Func (t2, f2, a2, b2)) =>
         Typ.equal (t1, t2) andalso
         Id.eq (f1, f2) andalso
@@ -157,6 +165,7 @@ struct
     | Par (t, _, _) => t
     | Fst (t, _) => t
     | Snd (t, _) => t
+    | Let (t, _, _, _) => t
     | Func (t, _, _, _) => t
     | IfZero (t, _, _, _) => t
     | Num (t, _) => t
@@ -184,6 +193,9 @@ struct
           withT (parens ("fst " ^ toStringP e'))
       | Snd (t, e') =>
           withT (parens ("snd " ^ toStringP e'))
+      | Let (t, v, e1, e2) =>
+          withT (parens ("let " ^ Id.toString v ^ " = " ^ toString e1 ^ " in "
+                         ^ toString e2))
       | Func (t, func, arg, body) =>
           withT (parens ("fun " ^ Id.toString func ^ " " ^ Id.toString arg
                          ^ " is " ^ toString body))
@@ -203,6 +215,7 @@ struct
     | Par (_, e1, e2) => canStep e1 orelse canStep e2
     | Fst _ => true
     | Snd _ => true
+    | Let _ => true
     | IfZero _ => true
     | _ => false
 
@@ -221,6 +234,7 @@ struct
       | Par (t, e1, e2) => Par (t, doit e1, doit e2)
       | Fst (t, e) => Fst (t, doit e)
       | Snd (t, e) => Snd (t, doit e)
+      | Let (t, v, e1, e2) => Let (t, v, doit e1, doit e2)
       | Func (t, func, arg, body) => Func (t, func, arg, doit body)
       | Num (t, n) => Num (t, n)
       | Op (t, name, f, e1, e2) => Op (t, name, f, doit e1, doit e2)
@@ -264,6 +278,12 @@ struct
           (case e' of
              Par (_, _, b) => b
            | _ => raise Fail "tryStep Snd")
+
+    | Let (t, v, e1, e2) =>
+        if canStep e1 then
+          Let (t, v, tryStep e1, e2)
+        else
+          subst (e1, v) e2
 
     | Op (t, name, f, e1, e2) =>
         if canStep e1 then
@@ -323,6 +343,13 @@ struct
     | Par (_, e1, e2) => (checkScoping ctx e1; checkScoping ctx e2)
     | Fst (_, e') => checkScoping ctx e'
     | Snd (_, e') => checkScoping ctx e'
+    | Let (_, v, e1, e2) =>
+        let
+          val ctx' = IdSet.insert v ctx
+        in
+          checkScoping ctx e1;
+          checkScoping ctx' e2
+        end
     | Func (_, func, arg, body) =>
         let
           val ctx' = IdSet.insert func (IdSet.insert arg ctx)
@@ -343,6 +370,7 @@ struct
     | Lang0.Par (e1, e2) => Par (uu, from0 e1, from0 e2)
     | Lang0.Fst e' => Fst (uu, from0 e')
     | Lang0.Snd e' => Snd (uu, from0 e')
+    | Lang0.Let (v, e1, e2) => Let (uu, v, from0 e1, from0 e2)
     | Lang0.Func (f, a, b) => Func (uu, f, a, from0 b)
     | Lang0.Op (name, f, e1, e2) => Op (uu, name, f, from0 e1, from0 e2)
     | Lang0.IfZero (e1, e2, e3) =>
@@ -365,6 +393,7 @@ struct
     | Par (t, e1, e2) => Par (Typ.unify (t, t'), e1, e2)
     | Fst (t, e') => Fst (Typ.unify (t, t'), e')
     | Snd (t, e') => Snd (Typ.unify (t, t'), e')
+    | Let (t, v, e1, e2) => Let (Typ.unify (t, t'), v, e1, e2)
     | Func (t, func, arg, body) => Func (Typ.unify (t, t'), func, arg, body)
     | Op (t, name, f, e1, e2) => Op (Typ.unify (t, t'), name, f, e1, e2)
     | IfZero (t, e1, e2, e3) => IfZero (Typ.unify (t, t'), e1, e2, e3)
@@ -512,6 +541,41 @@ struct
           , exp = Snd (Typ.unify (t, t'), ee')
               handle Typ.Overconstrained =>
               raise Fail ("Lang1.refineType Snd: unexpected bug in final refine")
+          }
+        end
+
+    | Let (t, v, e1, e2) =>
+        let
+          val vars = IdTable.insertWith Typ.unify (v, Typ.Unknown) vars
+          val t1 = valOf (IdTable.lookup v vars)
+
+          val {vars, exp=e1'} =
+            refineType
+              { vars = vars
+              , exp = refineRootTyp e1 t1
+                  handle Typ.Overconstrained =>
+                  raise Fail ("Lang1.refineType Let: variable "
+                  ^ Id.toString v ^ " has type "
+                  ^ Typ.toString t1 ^ " but is bound to expression of type "
+                  ^ Typ.toString (typOf e1))
+              }
+
+          val {vars, exp=e2'} =
+            refineType
+              { vars = vars
+              , exp = refineRootTyp e2 t
+                  handle Typ.Overconstrained =>
+                  raise Fail ("Lang1.refineType Let: expected type "
+                  ^ Typ.toString t ^ " but found expression of type "
+                  ^ Typ.toString (typOf e2))
+              }
+
+          val t' = typOf e2'
+        in
+          { vars = vars
+          , exp = Let (Typ.unify (t, t'), v, e1', e2')
+              handle Typ.Overconstrained =>
+              raise Fail ("Lang1.refineType Let: bug in final refine")
           }
         end
 

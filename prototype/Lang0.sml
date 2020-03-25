@@ -12,6 +12,7 @@ struct
   | Par of exp * exp
   | Fst of exp
   | Snd of exp
+  | Let of var * exp * exp
   | Func of var * var * exp (* function name, argument, function body *)
   | Num of int
   | IfZero of exp * exp * exp
@@ -33,6 +34,8 @@ struct
         toStringP e1 ^ " || " ^ toStringP e2
     | Fst e' => "fst " ^ toStringP e'
     | Snd e' => "snd " ^ toStringP e'
+    | Let (v, e1, e2) =>
+        "let " ^ Id.toString v ^ " = " ^ toString e1 ^ " in " ^ toString e2
     | Func (func, arg, body) =>
         "fun " ^ Id.toString func ^ " " ^ Id.toString arg ^ " is " ^ toString body
     | Op (name, _, e1, e2) =>
@@ -50,6 +53,8 @@ struct
         | IfZero _ => true
         | Fst _ => true
         | Snd _ => true
+        | Let _ => true
+        | Func _ => true
         | _ => false
     in
       if needsP then parens (toString e) else toString e
@@ -63,6 +68,7 @@ struct
     | IfZero _ => true
     | Fst _ => true
     | Snd _ => true
+    | Let _ => true
     | _ => false
 
   fun deFunc e = case e of Func x => x | _ => raise Fail "deFunc"
@@ -80,6 +86,7 @@ struct
       | Par (e1, e2) => Par (doit e1, doit e2)
       | Fst e' => Fst (doit e')
       | Snd e' => Snd (doit e')
+      | Let (v, e1, e2) => Let (v, doit e1, doit e2)
       | Func (func, arg, body) => Func (func, arg, doit body)
       | Num n => Num n
       | Op (name, f, e1, e2) => Op (name, f, doit e1, doit e2)
@@ -123,6 +130,12 @@ struct
           (case e' of
              Par (_, b) => b
            | _ => raise Fail "tryStep Snd")
+
+    | Let (v, e1, e2) =>
+        if canStep e1 then
+          Let (v, tryStep e1, e2)
+        else
+          subst (e1, v) e2
 
     | Op (name, f, e1, e2) =>
         if canStep e1 then
@@ -174,11 +187,23 @@ struct
   val doubleFirst: exp =
     let
       val f = Id.new "f"
-      val g = Id.new "g"
       val x = Id.new "x"
       val y = Id.new "y"
     in
-      Func (f, x, App (Func (g, y, OpAdd (Var y, Var y)), Fst (Var x)))
+      Func (f, x, Let (y, Fst (Var x), OpAdd (Var y, Var y)))
+    end
+
+  val doesntTypeCheck: exp =
+    let
+      val f = Id.new "f"
+      val x = Id.new "x"
+      val ff = Id.new "ff"
+      val idFunc =
+        Func (f, x, Var x)
+    in
+      (* make f the identity function, but apply it to two different
+       * arguments. we don't have polymorphism! *)
+      Let (ff, idFunc, Par (App (Var ff, Num 1), App (Var ff, (Par (Num 2, Num 3)))))
     end
 
   val paradd: exp =
