@@ -206,12 +206,13 @@ struct
       Let (ff, idFunc, Par (App (Var ff, Num 1), App (Var ff, (Par (Num 2, Num 3)))))
     end
 
-  val paradd: exp =
+  val parAdd: exp =
     let
       val left = OpAdd (Num 1, Num 2)
       val right = OpAdd (Num 3, Num 4)
+      val x = Id.new "x"
     in
-      Par (left, right)
+      Let (x, Par (left, right), OpAdd (Fst (Var x), Snd (Var x)))
     end
 
 end
