@@ -72,10 +72,44 @@ struct
     Var of typ * var
   | App of typ * exp * exp
   | Par of typ * exp * exp
+  | Fst of typ * exp
+  | Snd of typ * exp
   | Func of typ * var * var * exp
   | IfZero of typ * exp * exp * exp
   | Num of typ * int
   | Op of typ * string * (int * int -> int) * exp * exp
+
+  fun fold (p as {combine=c: 'a * 'b -> 'b,
+                  typ: typ -> 'a,
+                  var: var -> 'a,
+                  num: int -> 'a})
+           (b: 'b)
+           (e: exp) =
+    case e of
+      Var (t, v) => c (var v, c (typ t, b))
+    | App (t, e1, e2) =>
+        fold p (fold p (c (typ t, b)) e1) e2
+    | Par (t, e1, e2) =>
+        fold p (fold p (c (typ t, b)) e1) e2
+    | Fst (t, e') =>
+        fold p (c (typ t, b)) e'
+    | Snd (t, e') =>
+        fold p (c (typ t, b)) e'
+    | Func (t, f, x, e') =>
+        fold p (c (var x, c (var f, c (typ t, b)))) e'
+    | IfZero (t, e1, e2, e3) =>
+        fold p (fold p (fold p (c (typ t, b)) e1) e2) e3
+    | Num (t, n) => c (num n, c (typ t, b))
+    | Op (t, _, _, e1, e2) =>
+        fold p (fold p (c (typ t, b)) e1) e2
+
+  fun hasUnknowns e =
+    fold {combine = (fn (a, b) => a orelse b),
+          typ = Typ.hasUnknowns,
+          var = (fn _ => false),
+          num = (fn _ => false)}
+         false
+         e
 
   fun equal (e1, e2) =
     case (e1, e2) of
@@ -93,6 +127,12 @@ struct
         Typ.equal (t1, t2) andalso
         equal (x1, x2) andalso
         equal (y1, y2)
+    | (Fst (t1, x1), Fst (t2, x2)) =>
+        Typ.equal (t1, t2) andalso
+        equal (x1, x2)
+    | (Snd (t1, x1), Snd (t2, x2)) =>
+        Typ.equal (t1, t2) andalso
+        equal (x1, x2)
     | (Func (t1, f1, a1, b1), Func (t2, f2, a2, b2)) =>
         Typ.equal (t1, t2) andalso
         Id.eq (f1, f2) andalso
@@ -108,12 +148,15 @@ struct
         n1 = n2 andalso
         equal (a1, a2) andalso
         equal (b1, b2)
+    | _ => false
 
   fun typOf e =
     case e of
       Var (t, _) => t
     | App (t, _, _) => t
     | Par (t, _, _) => t
+    | Fst (t, _) => t
+    | Snd (t, _) => t
     | Func (t, _, _, _) => t
     | IfZero (t, _, _, _) => t
     | Num (t, _) => t
@@ -124,36 +167,42 @@ struct
   fun OpMul (e1, e2) = Op (Typ.Num, "*", op*, e1, e2)
 
   fun toString e =
-    case e of
-      Var (t, v) => Id.toString v ^ ": " ^ Typ.toString t
-    | Num (t, n) => Int.toString n ^ ": " ^ Typ.toString t
-    | App (t, e1, e2) =>
-        toStringP e1 ^ " " ^ toStringP e2 ^ " : " ^ Typ.toString t
-    | Par (t, e1, e2) =>
-        toStringP e1 ^ " || " ^ toStringP e2 ^ " : " ^ Typ.toString t
-    | Func (t, func, arg, body) =>
-        parens ("fun " ^ Id.toString func ^ " " ^ Id.toString arg ^ " is "
-                ^ toString body) ^ " : " ^ Typ.toString t
-    | Op (t, name, _, e1, e2) =>
-        parens (toStringP e1 ^ " " ^ name ^ " " ^ toStringP e2) ^ " : "
-        ^ Typ.toString t
-    | IfZero (t, e1, e2, e3) =>
-        parens ("ifz " ^ toString e1 ^ " then " ^ toString e2 ^ " else "
-                ^ toString e3) ^ " : " ^ Typ.toString t
+    let
+      fun withT str =
+        case typOf e of
+          Typ.Unknown => str
+        | t => str ^ " : " ^ Typ.toString t
+    in
+      case e of
+        Var (t, v) => withT (Id.toString v)
+      | Num (t, n) => withT (Int.toString n)
+      | App (t, e1, e2) =>
+          withT (toStringP e1 ^ " " ^ toStringP e2)
+      | Par (t, e1, e2) =>
+          withT (toStringP e1 ^ " || " ^ toStringP e2)
+      | Fst (t, e') =>
+          withT (parens ("fst " ^ toStringP e'))
+      | Snd (t, e') =>
+          withT (parens ("snd " ^ toStringP e'))
+      | Func (t, func, arg, body) =>
+          withT (parens ("fun " ^ Id.toString func ^ " " ^ Id.toString arg
+                         ^ " is " ^ toString body))
+      | Op (t, name, _, e1, e2) =>
+          withT (parens (toStringP e1 ^ " " ^ name ^ " " ^ toStringP e2))
+      | IfZero (t, e1, e2, e3) =>
+          withT (parens ("ifz " ^ toString e1 ^ " then " ^ toString e2
+                         ^ " else " ^ toString e3))
+    end
 
   and toStringP e = parens (toString e)
-    (* case e of
-      App _ => parens (toString e)
-    | Par _ => parens (toString e)
-    | Op _ => parens (toString e)
-    | IfZero _ => parens (toString e)
-    | _ => toString e *)
 
   fun canStep e =
     case e of
       Op _ => true
     | App _ => true
     | Par (_, e1, e2) => canStep e1 orelse canStep e2
+    | Fst _ => true
+    | Snd _ => true
     | IfZero _ => true
     | _ => false
 
@@ -170,6 +219,8 @@ struct
         Var (t, v) => if Id.eq (v, x) then e' else Var (t, v)
       | App (t, e1, e2) => App (t, doit e1, doit e2)
       | Par (t, e1, e2) => Par (t, doit e1, doit e2)
+      | Fst (t, e) => Fst (t, doit e)
+      | Snd (t, e) => Snd (t, doit e)
       | Func (t, func, arg, body) => Func (t, func, arg, doit body)
       | Num (t, n) => Num (t, n)
       | Op (t, name, f, e1, e2) => Op (t, name, f, doit e1, doit e2)
@@ -197,6 +248,22 @@ struct
           Par (t, e1, tryStep e2)
         else
           raise Fail "tryStep Par"
+
+    | Fst (t, e') =>
+        if canStep e' then
+          Fst (t, tryStep e')
+        else
+          (case e' of
+             Par (_, a, _) => a
+           | _ => raise Fail "tryStep Fst")
+
+    | Snd (t, e') =>
+        if canStep e' then
+          Snd (t, tryStep e')
+        else
+          (case e' of
+             Par (_, _, b) => b
+           | _ => raise Fail "tryStep Snd")
 
     | Op (t, name, f, e1, e2) =>
         if canStep e1 then
@@ -254,6 +321,8 @@ struct
           ()
     | App (_, e1, e2) => (checkScoping ctx e1; checkScoping ctx e2)
     | Par (_, e1, e2) => (checkScoping ctx e1; checkScoping ctx e2)
+    | Fst (_, e') => checkScoping ctx e'
+    | Snd (_, e') => checkScoping ctx e'
     | Func (_, func, arg, body) =>
         let
           val ctx' = IdSet.insert func (IdSet.insert arg ctx)
@@ -266,16 +335,18 @@ struct
 
   val uu = Typ.Unknown
 
-  fun putUnknowns (exp: Lang0.exp): exp =
+  fun from0 (exp: Lang0.exp): exp =
     case exp of
       Lang0.Num n => Num (uu, n)
     | Lang0.Var v => Var (uu, v)
-    | Lang0.App (e1, e2) => App (uu, putUnknowns e1, putUnknowns e2)
-    | Lang0.Par (e1, e2) => Par (uu, putUnknowns e1, putUnknowns e2)
-    | Lang0.Func (f, a, b) => Func (uu, f, a, putUnknowns b)
-    | Lang0.Op (name, f, e1, e2) => Op (uu, name, f, putUnknowns e1, putUnknowns e2)
+    | Lang0.App (e1, e2) => App (uu, from0 e1, from0 e2)
+    | Lang0.Par (e1, e2) => Par (uu, from0 e1, from0 e2)
+    | Lang0.Fst e' => Fst (uu, from0 e')
+    | Lang0.Snd e' => Snd (uu, from0 e')
+    | Lang0.Func (f, a, b) => Func (uu, f, a, from0 b)
+    | Lang0.Op (name, f, e1, e2) => Op (uu, name, f, from0 e1, from0 e2)
     | Lang0.IfZero (e1, e2, e3) =>
-        IfZero (uu, putUnknowns e1, putUnknowns e2, putUnknowns e3)
+        IfZero (uu, from0 e1, from0 e2, from0 e3)
 
   (* To implement unification of type constraints on variables, we do multiple
    * passes over the program. We begin by annotating every expression with an
@@ -292,6 +363,8 @@ struct
     | Num (t, n) => Num (Typ.unify (t, t'), n)
     | App (t, e1, e2) => App (Typ.unify (t, t'), e1, e2)
     | Par (t, e1, e2) => Par (Typ.unify (t, t'), e1, e2)
+    | Fst (t, e') => Fst (Typ.unify (t, t'), e')
+    | Snd (t, e') => Snd (Typ.unify (t, t'), e')
     | Func (t, func, arg, body) => Func (Typ.unify (t, t'), func, arg, body)
     | Op (t, name, f, e1, e2) => Op (Typ.unify (t, t'), name, f, e1, e2)
     | IfZero (t, e1, e2, e3) => IfZero (Typ.unify (t, t'), e1, e2, e3)
@@ -392,6 +465,56 @@ struct
           }
         end
 
+    | Fst (t, ee) =>
+        let
+          val tee = Typ.Prod (t, Typ.Unknown)
+          val {vars, exp=ee'} =
+            refineType
+              { vars = vars
+              , exp = refineRootTyp ee tee
+                  handle Typ.Overconstrained =>
+                  raise Fail ("Lang1.refineType Fst: expected tuple of type "
+                  ^ Typ.toString tee ^ " but found "
+                  ^ Typ.toString (typOf ee))
+              }
+
+          val t' =
+            case typOf ee' of
+              Typ.Prod (t', _) => t'
+            | _ => raise Fail ("Lang1.refineType Fst: bug")
+        in
+          { vars = vars
+          , exp = Fst (Typ.unify (t, t'), ee')
+              handle Typ.Overconstrained =>
+              raise Fail ("Lang1.refineType Fst: unexpected bug in final refine")
+          }
+        end
+
+    | Snd (t, ee) =>
+        let
+          val tee = Typ.Prod (Typ.Unknown, t)
+          val {vars, exp=ee'} =
+            refineType
+              { vars = vars
+              , exp = refineRootTyp ee tee
+                  handle Typ.Overconstrained =>
+                  raise Fail ("Lang1.refineType Snd: expected tuple of type "
+                  ^ Typ.toString tee ^ " but found "
+                  ^ Typ.toString (typOf ee))
+              }
+
+          val t' =
+            case typOf ee' of
+              Typ.Prod (_, t') => t'
+            | _ => raise Fail ("Lang1.refineType Snd: bug")
+        in
+          { vars = vars
+          , exp = Snd (Typ.unify (t, t'), ee')
+              handle Typ.Overconstrained =>
+              raise Fail ("Lang1.refineType Snd: unexpected bug in final refine")
+          }
+        end
+
     | Func (t, func, arg, body) =>
         let
           val (t1, t2) =
@@ -475,7 +598,7 @@ struct
 
   fun inferType (exp: Lang0.exp): exp =
     let
-      val exp = putUnknowns exp
+      val exp = from0 exp
       val _ = checkScoping IdSet.empty exp
 
       fun loop vars exp =
@@ -489,8 +612,15 @@ struct
           else
             loop vars' exp'
         end
+
+      val exp = loop IdTable.empty exp
     in
-      loop IdTable.empty exp
+      if hasUnknowns exp then
+        print "WARNING: final type assignment has unknowns\n"
+      else
+        ();
+
+      exp
     end
 
 end

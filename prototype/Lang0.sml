@@ -10,6 +10,8 @@ struct
     Var of var
   | App of exp * exp
   | Par of exp * exp
+  | Fst of exp
+  | Snd of exp
   | Func of var * var * exp (* function name, argument, function body *)
   | Num of int
   | IfZero of exp * exp * exp
@@ -29,6 +31,8 @@ struct
         toStringP e1 ^ " " ^ toStringP e2
     | Par (e1, e2) =>
         toStringP e1 ^ " || " ^ toStringP e2
+    | Fst e' => "fst " ^ toStringP e'
+    | Snd e' => "snd " ^ toStringP e'
     | Func (func, arg, body) =>
         "fun " ^ Id.toString func ^ " " ^ Id.toString arg ^ " is " ^ toString body
     | Op (name, _, e1, e2) =>
@@ -37,12 +41,19 @@ struct
         "ifz " ^ toString e1 ^ " then " ^ toString e2 ^ " else " ^ toString e3
 
   and toStringP e =
-    case e of
-      App _ => parens (toString e)
-    | Par _ => parens (toString e)
-    | Op _ => parens (toString e)
-    | IfZero _ => parens (toString e)
-    | _ => toString e
+    let
+      val needsP =
+        case e of
+          App _ => true
+        | Par _ => true
+        | Op _ => true
+        | IfZero _ => true
+        | Fst _ => true
+        | Snd _ => true
+        | _ => false
+    in
+      if needsP then parens (toString e) else toString e
+    end
 
   fun canStep e =
     case e of
@@ -50,6 +61,8 @@ struct
     | App _ => true
     | Par (e1, e2) => canStep e1 orelse canStep e2
     | IfZero _ => true
+    | Fst _ => true
+    | Snd _ => true
     | _ => false
 
   fun deFunc e = case e of Func x => x | _ => raise Fail "deFunc"
@@ -65,6 +78,8 @@ struct
         Var v => if Id.eq (v, x) then e' else Var v
       | App (e1, e2) => App (doit e1, doit e2)
       | Par (e1, e2) => Par (doit e1, doit e2)
+      | Fst e' => Fst (doit e')
+      | Snd e' => Snd (doit e')
       | Func (func, arg, body) => Func (func, arg, doit body)
       | Num n => Num n
       | Op (name, f, e1, e2) => Op (name, f, doit e1, doit e2)
@@ -92,6 +107,22 @@ struct
           Par (e1, tryStep e2)
         else
           raise Fail "tryStep Par"
+
+    | Fst e' =>
+        if canStep e' then
+          Fst (tryStep e')
+        else
+          (case e' of
+             Par (a, _) => a
+           | _ => raise Fail "tryStep Fst")
+
+    | Snd e' =>
+        if canStep e' then
+          Snd (tryStep e')
+        else
+          (case e' of
+             Par (_, b) => b
+           | _ => raise Fail "tryStep Snd")
 
     | Op (name, f, e1, e2) =>
         if canStep e1 then
@@ -138,6 +169,16 @@ struct
         IfZero (Var n, Num 1, OpMul (Var n, App (Var f, OpSub (Var n, Num 1))))
     in
       Func (f, n, body)
+    end
+
+  val doubleFirst: exp =
+    let
+      val f = Id.new "f"
+      val g = Id.new "g"
+      val x = Id.new "x"
+      val y = Id.new "y"
+    in
+      Func (f, x, App (Func (g, y, OpAdd (Var y, Var y)), Fst (Var x)))
     end
 
   val paradd: exp =
