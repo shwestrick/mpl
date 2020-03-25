@@ -3,11 +3,18 @@ structure Lang0 =
 struct
 
   structure Id = Identifier
+  structure IdTable = TreeTable(Id)
   type var = Id.t
   (* type typ = Type.t *)
 
+  type loc = Id.t
+
   datatype exp =
     Var of var
+  | Loc of loc
+  | Ref of exp
+  | Upd of exp * exp
+  | Bang of exp
   | App of exp * exp
   | Par of exp * exp
   | Fst of exp
@@ -28,6 +35,10 @@ struct
     case e of
       Var v => Id.toString v
     | Num n => Int.toString n
+    | Loc l => Id.toString l
+    | Ref e' => "ref " ^ toStringP e'
+    | Bang e' => "!" ^ toStringP e'
+    | Upd (e1, e2) => toStringP e1 ^ " := " ^ toStringP e2
     | App (e1, e2) =>
         toStringP e1 ^ " " ^ toStringP e2
     | Par (e1, e2) =>
@@ -55,24 +66,18 @@ struct
         | Snd _ => true
         | Let _ => true
         | Func _ => true
+        | Upd _ => true
+        | Bang _ => true
         | _ => false
     in
       if needsP then parens (toString e) else toString e
     end
 
-  fun canStep e =
-    case e of
-      Op _ => true
-    | App _ => true
-    | Par (e1, e2) => canStep e1 orelse canStep e2
-    | IfZero _ => true
-    | Fst _ => true
-    | Snd _ => true
-    | Let _ => true
-    | _ => false
-
   fun deFunc e = case e of Func x => x | _ => raise Fail "deFunc"
   fun deNum e = case e of Num x => x | _ => raise Fail "deNum"
+  fun deLoc e = case e of Loc l => l | _ => raise Fail "deLoc"
+  fun dePar e = case e of Par x => x | _ => raise Fail "dePar"
+  fun deRef e = case e of Ref x => e | _ => raise Fail "deRef"
 
   (* substitute [e'/x]e *)
   fun subst (e', x) e =
@@ -82,97 +87,163 @@ struct
     in
       case e of
         Var v => if Id.eq (v, x) then e' else Var v
+      | Num n => Num n
+      | Loc l => Loc l
+      | Ref e' => Ref (doit e')
+      | Upd (e1, e2) => Upd (doit e1, doit e2)
+      | Bang e' => Bang (doit e')
       | App (e1, e2) => App (doit e1, doit e2)
       | Par (e1, e2) => Par (doit e1, doit e2)
       | Fst e' => Fst (doit e')
       | Snd e' => Snd (doit e')
       | Let (v, e1, e2) => Let (v, doit e1, doit e2)
       | Func (func, arg, body) => Func (func, arg, doit body)
-      | Num n => Num n
       | Op (name, f, e1, e2) => Op (name, f, doit e1, doit e2)
       | IfZero (e1, e2, e3) => IfZero (doit e1, doit e2, doit e3)
     end
 
-  fun tryStep (e: exp): exp =
+  (* mapping of locations to expressions *)
+  type memory = exp IdTable.t
+
+  fun getLoc loc mem =
+    case IdTable.lookup loc mem of
+      NONE => raise Fail ("getLoc " ^ Id.toString loc)
+    | SOME x => x
+
+  fun step (m, e) =
     case e of
-      App (e1, e2) =>
-        if canStep e1 then
-          App (tryStep e1, e2)
-        else if canStep e2 then
-          App (e1, tryStep e2)
-        else
-          let
-            val (func, arg, body) = deFunc e1
-          in
-            subst (e1, func) (subst (e2, arg) body)
-          end
+      Num x    => NONE
+    | Loc x    => NONE
+    | App x    => SOME (stepApp m x)
+    | Par x    => SOME (stepPar m x)
+    | Fst x    => SOME (stepFst m x)
+    | Snd x    => SOME (stepSnd m x)
+    | Let x    => SOME (stepLet m x)
+    | Op x     => SOME (stepOp m x)
+    | IfZero x => SOME (stepIfZero m x)
+    | Func x   => SOME (stepFunc m x)
+    | Ref x    => SOME (stepRef m x)
+    | Bang x   => SOME (stepBang m x)
+    | Upd x    => SOME (stepUpd m x)
 
-    | Par (e1, e2) =>
-        if canStep e1 then
-          Par (tryStep e1, e2)
-        else if canStep e2 then
-          Par (e1, tryStep e2)
-        else
-          raise Fail "tryStep Par"
+  and stepApp m (e1, e2) =
+    case step (m, e1) of
+      SOME (m', e1') => (m', App (e1', e2))
+    | NONE =>
+        case step (m, e2) of
+          SOME (m', e2') => (m', App (e1, e2'))
+        | NONE =>
+            let
+              val (func, arg, body) = deFunc (getLoc (deLoc e1) m)
+            in
+              (m, subst (e1, func) (subst (e2, arg) body))
+            end
 
-    | Fst e' =>
-        if canStep e' then
-          Fst (tryStep e')
-        else
-          (case e' of
-             Par (a, _) => a
-           | _ => raise Fail "tryStep Fst")
+  and stepPar m (e1, e2) =
+    case step (m, e1) of
+      SOME (m', e1') => (m', Par (e1', e2))
+    | NONE =>
+        case step (m, e2) of
+          SOME (m', e2') => (m', Par (e1, e2'))
+        | NONE =>
+            let
+              val l = Id.loc ()
+            in
+              (IdTable.insert (l, Par (e1, e2)) m, Loc l)
+            end
 
-    | Snd e' =>
-        if canStep e' then
-          Snd (tryStep e')
-        else
-          (case e' of
-             Par (_, b) => b
-           | _ => raise Fail "tryStep Snd")
+  and stepFst m e =
+    case step (m, e) of
+      SOME (m', e') => (m', Fst e')
+    | NONE =>
+        (m, #1 (dePar (getLoc (deLoc e) m)))
 
-    | Let (v, e1, e2) =>
-        if canStep e1 then
-          Let (v, tryStep e1, e2)
-        else
-          subst (e1, v) e2
+  and stepSnd m e =
+    case step (m, e) of
+      SOME (m', e') => (m', Snd e')
+    | NONE =>
+        (m, #2 (dePar (getLoc (deLoc e) m)))
 
-    | Op (name, f, e1, e2) =>
-        if canStep e1 then
-          Op (name, f, tryStep e1, e2)
-        else if canStep e2 then
-          Op (name, f, e1, tryStep e2)
-        else
-          let
-            val n1 = deNum e1
-            val n2 = deNum e2
-          in
-            Num (f (n1, n2))
-          end
+  and stepLet m (v, e1, e2) =
+    case step (m, e1) of
+      SOME (m', e1') => (m', Let (v, e1', e2))
+    | NONE => (m, subst (e1, v) e2)
 
-    | IfZero (e1, e2, e3) =>
-        if canStep e1 then
-          IfZero (tryStep e1, e2, e3)
-        else
-          let
-            val n = deNum e1
-          in
-            if n = 0 then e2 else e3
-          end
+  and stepOp m (name, oper, e1, e2) =
+    case step (m, e1) of
+      SOME (m', e1') => (m', Op (name, oper, e1', e2))
+    | NONE =>
+        case step (m, e2) of
+          SOME (m', e2') => (m', Op (name, oper, e1, e2'))
+        | NONE =>
+            let
+              val n1 = deNum e1
+              val n2 = deNum e2
+            in
+              (m, Num (oper (n1, n2)))
+            end
 
-    | _ => raise Fail "tryStep"
+  and stepIfZero m (e1, e2, e3) =
+    case step (m, e1) of
+      SOME (m', e1') => (m', IfZero (e1', e2, e3))
+    | NONE =>
+        if deNum e1 = 0 then (m, e2) else (m, e3)
 
-  fun step e =
-    if canStep e then SOME (tryStep e) else NONE
+  and stepFunc m (func, arg, body) =
+    let
+      val l = Id.loc ()
+    in
+      (IdTable.insert (l, Func (func, arg, body)) m, Loc l)
+    end
+
+  and stepRef m e =
+    case step (m, e) of
+      SOME (m', e') => (m', Ref e')
+    | NONE =>
+        let
+          val l = Id.loc ()
+        in
+          (IdTable.insert (l, Ref e) m, Loc l)
+        end
+
+  and stepBang m e =
+    case step (m, e) of
+      SOME (m', e') => (m', Bang e')
+    | NONE =>
+        (m, deRef (getLoc (deLoc e) m))
+
+  and stepUpd m (e1, e2) =
+    case step (m, e1) of
+      SOME (m', e1') => (m', Upd (e1', e2))
+    | NONE =>
+        case step (m, e2) of
+          SOME (m', e2') => (m', Upd (e1, e2'))
+        | NONE =>
+            (IdTable.insert (deLoc e1, Ref e2) m, e2)
 
   fun exec e =
     let
-      val _ = print (toString e ^ "\n")
+      fun loop (m, e) =
+        let
+          val _ = print (IdTable.toString (fn e => parens (toString e)) m ^ "\n")
+          val _ = print (toString e ^ "\n\n")
+        in
+          case step (m, e) of
+            NONE => (m, e)
+          | SOME (m', e') => loop (m', e')
+        end
+
+      val (m, e) = loop (IdTable.empty, e)
     in
-      case step e of
-        NONE => print "DONE\n"
-      | SOME e' => exec e'
+      case e of
+        Loc l => print ("RESULT: " ^ toString (getLoc l m) ^ "\n")
+      | Num n => print ("RESULT: " ^ Int.toString n ^ "\n")
+      | _ => print ("ERROR\n");
+
+      (m, e)
     end
+
+  (* ======================================================================= *)
 
   val fact: exp =
     let
@@ -213,6 +284,29 @@ struct
       val x = Id.new "x"
     in
       Let (x, Par (left, right), OpAdd (Fst (Var x), Snd (Var x)))
+    end
+
+  val iterFib: exp =
+    let
+      (* iterFib takes x = ((a, b), n) where a and b are the two most recent *)
+      val iterFib = Id.new "iterFib"
+      val x = Id.new "x"
+      val a = Fst (Fst (Var x))
+      val b = Snd (Fst (Var x))
+      val n = Snd (Var x)
+      val elseBranch =
+        App (Var iterFib, Par (Par (b, OpAdd (a, b)), OpSub (n, Num 1)))
+      val body = IfZero (n, a, elseBranch)
+    in
+      Func (iterFib, x, body)
+    end
+
+  val fib: exp =
+    let
+      val fib = Id.new "fib"
+      val n = Id.new "n"
+    in
+      Func (fib, n, App (iterFib, Par (Par (Num 0, Num 1), Var n)))
     end
 
 end
