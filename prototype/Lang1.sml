@@ -379,7 +379,7 @@ struct
     | Op (t, name, f, e1, e2) => Op (Typ.unify (t, t'), name, f, e1, e2)
     | IfZero (t, e1, e2, e3) => IfZero (Typ.unify (t, t'), e1, e2, e3)
 
-  fun refineType {vars: Typ.t IdTable.t, exp: exp}
+  fun refineTyp {vars: Typ.t IdTable.t, exp: exp}
                : {vars: Typ.t IdTable.t, exp: exp} =
     case exp of
       Var (t, v) =>
@@ -391,7 +391,7 @@ struct
             let
               val t'' = Typ.unify (t, t')
                 handle Typ.Overconstrained =>
-                raise Fail ("Lang1.refineType Var: "
+                raise Fail ("Lang1.refineTyp Var: "
                 ^ "expected type " ^ Typ.toString t ^ " but found variable "
                 ^ Id.toString v ^ " of type " ^ Typ.toString t')
             in
@@ -402,32 +402,32 @@ struct
     | Num (t, n) =>
         ({vars = vars, exp = Num (Typ.unify (t, Typ.Num), n)}
             handle Typ.Overconstrained =>
-            raise Fail ("Lang1.refineType Num: expected type "
+            raise Fail ("Lang1.refineTyp Num: expected type "
             ^ Typ.toString t ^ " but found type " ^ Typ.toString Typ.Num))
 
     | App (t, e1, e2) =>
         let
           val t1 = Typ.Arr (typOf e2, t)
           val {vars, exp=e1'} =
-            refineType
+            refineTyp
               { vars = vars
               , exp = refineRootTyp e1 t1
                   handle Typ.Overconstrained =>
-                  raise Fail ("Lang1.refineType App: expected function of type "
+                  raise Fail ("Lang1.refineTyp App: expected function of type "
                   ^ Typ.toString t1 ^ " but found " ^ Typ.toString (typOf e1))
               }
 
           val (t2, t') =
             case typOf e1' of
               Typ.Arr (t2, t') => (t2, t')
-            | _ => raise Fail ("Lang1.refineType App: bug in refinement of e1")
+            | _ => raise Fail ("Lang1.refineTyp App: bug in refinement of e1")
 
           val {vars, exp=e2'} =
-            refineType
+            refineTyp
               { vars = vars
               , exp = refineRootTyp e2 t2
                   handle Typ.Overconstrained =>
-                  raise Fail ("Lang1.refineType App: function expects argument "
+                  raise Fail ("Lang1.refineTyp App: function expects argument "
                   ^ "of type " ^ Typ.toString t2 ^ " but found type "
                   ^ Typ.toString (typOf e2))
               }
@@ -435,7 +435,7 @@ struct
           { vars = vars
           , exp = App (Typ.unify (t, t'), e1', e2')
               handle Typ.Overconstrained =>
-              raise Fail ("Lang1.refineType App: bug in final refinement")
+              raise Fail ("Lang1.refineTyp App: bug in final refinement")
           }
         end
 
@@ -447,21 +447,21 @@ struct
             | _ => (Typ.Unknown, Typ.Unknown)
 
           val {vars, exp=e1'} =
-            refineType
+            refineTyp
               { vars = vars
               , exp = refineRootTyp e1 t1
                   handle Typ.Overconstrained =>
-                  raise Fail ("Lang1.refineType Par: expected 1st component "
+                  raise Fail ("Lang1.refineTyp Par: expected 1st component "
                   ^ "of type " ^ Typ.toString t1 ^ " but found "
                   ^ Typ.toString (typOf e1))
               }
 
           val {vars, exp=e2'} =
-            refineType
+            refineTyp
               { vars = vars
               , exp = refineRootTyp e2 t2
                   handle Typ.Overconstrained =>
-                  raise Fail ("Lang1.refineType Par: expected 2nd component "
+                  raise Fail ("Lang1.refineTyp Par: expected 2nd component "
                   ^ "of type " ^ Typ.toString t2 ^ " but found "
                   ^ Typ.toString (typOf e2))
               }
@@ -471,7 +471,7 @@ struct
           { vars = vars
           , exp = Par (Typ.unify (t, t'), e1', e2')
               handle Typ.Overconstrained =>
-              raise Fail ("Lang1.refineType Par: bug in final refinement")
+              raise Fail ("Lang1.refineTyp Par: bug in final refinement")
           }
         end
 
@@ -479,11 +479,11 @@ struct
         let
           val tee = Typ.Prod (t, Typ.Unknown)
           val {vars, exp=ee'} =
-            refineType
+            refineTyp
               { vars = vars
               , exp = refineRootTyp ee tee
                   handle Typ.Overconstrained =>
-                  raise Fail ("Lang1.refineType Fst: expected tuple of type "
+                  raise Fail ("Lang1.refineTyp Fst: expected tuple of type "
                   ^ Typ.toString tee ^ " but found "
                   ^ Typ.toString (typOf ee))
               }
@@ -491,12 +491,12 @@ struct
           val t' =
             case typOf ee' of
               Typ.Prod (t', _) => t'
-            | _ => raise Fail ("Lang1.refineType Fst: bug")
+            | _ => raise Fail ("Lang1.refineTyp Fst: bug")
         in
           { vars = vars
           , exp = Fst (Typ.unify (t, t'), ee')
               handle Typ.Overconstrained =>
-              raise Fail ("Lang1.refineType Fst: unexpected bug in final refine")
+              raise Fail ("Lang1.refineTyp Fst: unexpected bug in final refine")
           }
         end
 
@@ -504,11 +504,11 @@ struct
         let
           val tee = Typ.Prod (Typ.Unknown, t)
           val {vars, exp=ee'} =
-            refineType
+            refineTyp
               { vars = vars
               , exp = refineRootTyp ee tee
                   handle Typ.Overconstrained =>
-                  raise Fail ("Lang1.refineType Snd: expected tuple of type "
+                  raise Fail ("Lang1.refineTyp Snd: expected tuple of type "
                   ^ Typ.toString tee ^ " but found "
                   ^ Typ.toString (typOf ee))
               }
@@ -516,12 +516,12 @@ struct
           val t' =
             case typOf ee' of
               Typ.Prod (_, t') => t'
-            | _ => raise Fail ("Lang1.refineType Snd: bug")
+            | _ => raise Fail ("Lang1.refineTyp Snd: bug")
         in
           { vars = vars
           , exp = Snd (Typ.unify (t, t'), ee')
               handle Typ.Overconstrained =>
-              raise Fail ("Lang1.refineType Snd: unexpected bug in final refine")
+              raise Fail ("Lang1.refineTyp Snd: unexpected bug in final refine")
           }
         end
 
@@ -533,11 +533,11 @@ struct
             | _ => Typ.Unknown
 
           val {vars, exp=ee'} =
-            refineType
+            refineTyp
               { vars = vars
               , exp = refineRootTyp ee tee
                   handle Typ.Overconstrained =>
-                  raise Fail ("Lang1.refineType Ref: expected type "
+                  raise Fail ("Lang1.refineTyp Ref: expected type "
                   ^ Typ.toString tee ^ " but found "
                   ^ Typ.toString (typOf ee))
               }
@@ -547,7 +547,7 @@ struct
           { vars = vars
           , exp = Ref (Typ.unify (t, t'), ee')
               handle Typ.Overconstrained =>
-              raise Fail ("Lang1.refineType Ref: unexpected bug in final refine")
+              raise Fail ("Lang1.refineTyp Ref: unexpected bug in final refine")
           }
         end
 
@@ -556,11 +556,11 @@ struct
           val tee = Typ.Ref t
 
           val {vars, exp=ee'} =
-            refineType
+            refineTyp
               { vars = vars
               , exp = refineRootTyp ee tee
                   handle Typ.Overconstrained =>
-                  raise Fail ("Lang1.refineType Bang: expected type "
+                  raise Fail ("Lang1.refineTyp Bang: expected type "
                   ^ Typ.toString tee ^ " but found "
                   ^ Typ.toString (typOf ee))
               }
@@ -568,12 +568,12 @@ struct
           val t' =
             case typOf ee' of
               Typ.Ref t' => t'
-            | _ => raise Fail ("Lang1.refineType Bang: bug")
+            | _ => raise Fail ("Lang1.refineTyp Bang: bug")
         in
           { vars = vars
           , exp = Bang (Typ.unify (t, t'), ee')
               handle Typ.Overconstrained =>
-              raise Fail ("Lang1.refineType Bang: unexpected bug in final refine")
+              raise Fail ("Lang1.refineTyp Bang: unexpected bug in final refine")
           }
         end
 
@@ -582,11 +582,11 @@ struct
           val t1 = Typ.Ref t
 
           val {vars, exp=e1'} =
-            refineType
+            refineTyp
               { vars = vars
               , exp = refineRootTyp e1 t1
                   handle Typ.Overconstrained =>
-                  raise Fail ("Lang1.refineType Upd: "
+                  raise Fail ("Lang1.refineTyp Upd: "
                   ^ " in `" ^ toString exp ^ "`"
                   ^ " expected left-hand type "
                   ^ Typ.toString t1 ^ " but found "
@@ -596,14 +596,14 @@ struct
           val t2 =
             case typOf e1' of
               Typ.Ref x => x
-            | _ => raise Fail ("Lang1.refineType Upd: bug")
+            | _ => raise Fail ("Lang1.refineTyp Upd: bug")
 
           val {vars, exp=e2'} =
-            refineType
+            refineTyp
               { vars = vars
               , exp = refineRootTyp e2 t2
                   handle Typ.Overconstrained =>
-                  raise Fail ("Lang1.refineType Upd: "
+                  raise Fail ("Lang1.refineTyp Upd: "
                   ^ " in `" ^ toString exp ^ "`"
                   ^ " expected right-hand type "
                   ^ Typ.toString t2 ^ " but found "
@@ -615,24 +615,24 @@ struct
           { vars = vars
           , exp = Upd (Typ.unify (t, t'), e1', e2')
               handle Typ.Overconstrained =>
-              raise Fail ("Lang1.refineType Upd: unexpected bug in final refine")
+              raise Fail ("Lang1.refineTyp Upd: unexpected bug in final refine")
           }
         end
 
     | Seq (t, e1, e2) =>
         let
           val {vars, exp=e1'} =
-            refineType
+            refineTyp
               { vars = vars
               , exp = e1
               }
 
           val {vars, exp=e2'} =
-            refineType
+            refineTyp
               { vars = vars
               , exp = refineRootTyp e2 t
                   handle Typ.Overconstrained =>
-                  raise Fail ("Lang1.refineType Seq: expected type "
+                  raise Fail ("Lang1.refineTyp Seq: expected type "
                   ^ Typ.toString t ^ " but found "
                   ^ Typ.toString (typOf e2))
               }
@@ -647,7 +647,7 @@ struct
           fun updateVarTyp (t1Old, t1New) =
             Typ.unify (t1Old, t1New)
             handle Typ.Overconstrained =>
-            raise Fail ("Lang1.refineType Let: "
+            raise Fail ("Lang1.refineTyp Let: "
             ^ "expected variable " ^ Id.toString v ^ " to have type "
             ^ Typ.toString t1New ^ " but apparently it has type "
             ^ Typ.toString t1Old)
@@ -656,11 +656,11 @@ struct
           val t1 = valOf (IdTable.lookup v vars)
 
           val {vars, exp=e1'} =
-            refineType
+            refineTyp
               { vars = vars
               , exp = refineRootTyp e1 t1
                   handle Typ.Overconstrained =>
-                  raise Fail ("Lang1.refineType Let: variable "
+                  raise Fail ("Lang1.refineTyp Let: variable "
                   ^ Id.toString v ^ " has type "
                   ^ Typ.toString t1 ^ " but is bound to expression of type "
                   ^ Typ.toString (typOf e1))
@@ -669,11 +669,11 @@ struct
           val vars = IdTable.insertWith updateVarTyp (v, typOf e1') vars
 
           val {vars, exp=e2'} =
-            refineType
+            refineTyp
               { vars = vars
               , exp = refineRootTyp e2 t
                   handle Typ.Overconstrained =>
-                  raise Fail ("Lang1.refineType Let: expected type "
+                  raise Fail ("Lang1.refineTyp Let: expected type "
                   ^ Typ.toString t ^ " but found expression of type "
                   ^ Typ.toString (typOf e2))
               }
@@ -683,7 +683,7 @@ struct
           { vars = vars
           , exp = Let (Typ.unify (t, t'), v, e1', e2')
               handle Typ.Overconstrained =>
-              raise Fail ("Lang1.refineType Let: bug in final refine")
+              raise Fail ("Lang1.refineTyp Let: bug in final refine")
           }
         end
 
@@ -699,7 +699,7 @@ struct
           fun updateFuncTyp (tOld, tNew) =
             Typ.unify (tOld, tNew)
             handle Typ.Overconstrained =>
-            raise Fail ("Lang1.refineType Func: "
+            raise Fail ("Lang1.refineTyp Func: "
             ^ "expected function " ^ Id.toString func ^ " to have type "
             ^ Typ.toString tNew ^ " but apparently it has type "
             ^ Typ.toString tOld)
@@ -716,7 +716,7 @@ struct
           fun updateArgTyp (t1Old, t1New) =
             Typ.unify (t1Old, t1New)
             handle Typ.Overconstrained =>
-            raise Fail ("Lang1.refineType Func: "
+            raise Fail ("Lang1.refineTyp Func: "
             ^ "expected argument " ^ Id.toString arg ^ " to have type "
             ^ Typ.toString t1New ^ " but apparently it has type "
             ^ Typ.toString t1Old)
@@ -726,11 +726,11 @@ struct
           val t1 = valOf (IdTable.lookup arg vars)
 
           val {vars, exp=body'} =
-            refineType
+            refineTyp
               { vars = vars
               , exp = refineRootTyp body t2
                   handle Typ.Overconstrained =>
-                  raise Fail ("Lang1.refineType Func: "
+                  raise Fail ("Lang1.refineTyp Func: "
                   ^ "expected body to have type " ^ Typ.toString t2
                   ^ "but found type " ^ Typ.toString (typOf body))
               }
@@ -742,33 +742,83 @@ struct
           { vars = vars
           , exp = Func (Typ.unify (t, t'), func, arg, body')
               handle Typ.Overconstrained =>
-              raise Fail ("Lang1.refineType Func: bug in final refinement")
+              raise Fail ("Lang1.refineTyp Func: bug in final refinement")
           }
         end
 
     | Op (t, name, f, e1, e2) =>
         let
+          val t = Typ.unify (t, Typ.Num)
+            handle Typ.Overconstrained =>
+            raise Fail ("Lang1.refineTyp Op: expected result type "
+            ^ Typ.toString t ^ " but found "
+            ^ Typ.toString Typ.Num)
+
           val {vars, exp=e1'} =
-            refineType {vars=vars, exp = refineRootTyp e1 Typ.Num}
+            refineTyp
+              { vars = vars
+              , exp = refineRootTyp e1 Typ.Num
+                  handle Typ.Overconstrained =>
+                  raise Fail ("Lang1.refineTyp Op: expected type "
+                  ^ Typ.toString Typ.Num ^ " but found "
+                  ^ Typ.toString (typOf e1))
+              }
+
           val {vars, exp=e2'} =
-            refineType {vars=vars, exp = refineRootTyp e2 Typ.Num}
+            refineTyp
+              { vars = vars
+              , exp = refineRootTyp e2 Typ.Num
+                  handle Typ.Overconstrained =>
+                  raise Fail ("Lang1.refineTyp Op: expected type "
+                  ^ Typ.toString Typ.Num ^ " but found "
+                  ^ Typ.toString (typOf e2))
+              }
         in
           { vars = vars
-          , exp = Op (Typ.unify (t, Typ.Num), name, f, e1', e2')
+          , exp = Op (Typ.Num, name, f, e1', e2')
           }
         end
 
     | IfZero (t, e1, e2, e3) =>
         let
           val {vars, exp=e1'} =
-            refineType {vars=vars, exp = refineRootTyp e1 Typ.Num}
+            refineTyp
+              { vars = vars
+              , exp = refineRootTyp e1 Typ.Num
+                  handle Typ.Overconstrained =>
+                  raise Fail ("Lang1.refineTyp IfZero: expected type "
+                  ^ Typ.toString Typ.Num ^ " but found "
+                  ^ Typ.toString (typOf e1))
+              }
+
           val {vars, exp=e2'} =
-            refineType {vars=vars, exp = refineRootTyp e2 t}
+            refineTyp
+              { vars = vars
+              , exp = refineRootTyp e2 t
+                  handle Typ.Overconstrained =>
+                  raise Fail ("Lang1.refineTyp IfZero: expected type "
+                  ^ Typ.toString t ^ " but found "
+                  ^ Typ.toString (typOf e1))
+              }
+
           val {vars, exp=e3'} =
-            refineType {vars=vars, exp = refineRootTyp e3 t}
+            refineTyp
+              { vars = vars
+              , exp = refineRootTyp e3 t
+                  handle Typ.Overconstrained =>
+                  raise Fail ("Lang1.refineTyp IfZero: expected type "
+                  ^ Typ.toString t ^ " but found "
+                  ^ Typ.toString (typOf e3))
+              }
         in
           { vars = vars
           , exp = IfZero (Typ.unify (typOf e2', typOf e3'), e1', e2', e3')
+              handle Typ.Overconstrained =>
+              raise Fail ("Lang1.refineTyp IfZero: then- and else- branches disagree: "
+              ^ " then-branch is type "
+              ^ Typ.toString (typOf e2')
+              ^ " but else-branch is type "
+              ^ Typ.toString (typOf e3'))
           }
         end
 
@@ -780,7 +830,7 @@ struct
       fun loop vars exp =
         let
           val _ = print ("REFINING " ^ toString exp ^ "\n")
-          val {vars=vars', exp=exp'} = refineType {vars=vars, exp=exp}
+          val {vars=vars', exp=exp'} = refineTyp {vars=vars, exp=exp}
         in
           if equal (exp, exp') then
             (print ("DONE\n");
