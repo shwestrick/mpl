@@ -11,10 +11,11 @@ struct
 
   datatype exp =
     Var of var
-  | Loc of loc
+  | Loc of loc (* "internal"; not visible to Langs 1 and 2 *)
   | Ref of exp
   | Upd of exp * exp
   | Bang of exp
+  | Seq of exp * exp
   | App of exp * exp
   | Par of exp * exp
   | Fst of exp
@@ -41,6 +42,8 @@ struct
     | Upd (e1, e2) => toStringP e1 ^ " := " ^ toStringP e2
     | App (e1, e2) =>
         toStringP e1 ^ " " ^ toStringP e2
+    | Seq (e1, e2) =>
+        toStringP e1 ^ " ; " ^ toStringP e2
     | Par (e1, e2) =>
         toStringP e1 ^ " || " ^ toStringP e2
     | Fst e' => "fst " ^ toStringP e'
@@ -68,6 +71,7 @@ struct
         | Func _ => true
         | Upd _ => true
         | Bang _ => true
+        | Seq _ => true
         | _ => false
     in
       if needsP then parens (toString e) else toString e
@@ -77,7 +81,7 @@ struct
   fun deNum e = case e of Num x => x | _ => raise Fail "deNum"
   fun deLoc e = case e of Loc l => l | _ => raise Fail "deLoc"
   fun dePar e = case e of Par x => x | _ => raise Fail "dePar"
-  fun deRef e = case e of Ref x => e | _ => raise Fail "deRef"
+  fun deRef e = case e of Ref x => x | _ => raise Fail "deRef"
 
   (* substitute [e'/x]e *)
   fun subst (e', x) e =
@@ -94,6 +98,7 @@ struct
       | Bang e' => Bang (doit e')
       | App (e1, e2) => App (doit e1, doit e2)
       | Par (e1, e2) => Par (doit e1, doit e2)
+      | Seq (e1, e2) => Seq (doit e1, doit e2)
       | Fst e' => Fst (doit e')
       | Snd e' => Snd (doit e')
       | Let (v, e1, e2) => Let (v, doit e1, doit e2)
@@ -125,6 +130,7 @@ struct
     | Ref x    => SOME (stepRef m x)
     | Bang x   => SOME (stepBang m x)
     | Upd x    => SOME (stepUpd m x)
+    | Seq x    => SOME (stepSeq m x)
 
   and stepApp m (e1, e2) =
     case step (m, e1) of
@@ -221,11 +227,16 @@ struct
         | NONE =>
             (IdTable.insert (deLoc e1, Ref e2) m, e2)
 
+  and stepSeq m (e1, e2) =
+    case step (m, e1) of
+      SOME (m', e1') => (m', Seq (e1', e2))
+    | NONE => (m, e2)
+
   fun exec e =
     let
       fun loop (m, e) =
         let
-          val _ = print (IdTable.toString (fn e => parens (toString e)) m ^ "\n")
+          val _ = print (IdTable.toString (fn e => " " ^ toString e ^ "\n") m ^ "\n")
           val _ = print (toString e ^ "\n\n")
         in
           case step (m, e) of
@@ -307,6 +318,34 @@ struct
       val n = Id.new "n"
     in
       Func (fib, n, App (iterFib, Par (Par (Num 0, Num 1), Var n)))
+    end
+
+  val impFib: exp =
+    let
+      val a = Id.new "a"
+      val b = Id.new "b"
+      val aa = Id.new "aa"
+
+      val loop = Id.new "loop"
+      val loop' = Id.new "loop"
+      val n = Id.new "n"
+
+      val updStmt =
+        Let (aa, Bang (Var a),
+          Upd (Var b, OpAdd (Var aa, Upd (Var a, Bang (Var b)))))
+
+      val loopFunc =
+        Func (loop, n, IfZero (Var n, Bang (Var a),
+          Seq (updStmt, App (Var loop, OpSub (Var n, Num 1)))))
+
+      val impFib = Id.new "impFib"
+      val x = Id.new "x"
+    in
+      Func (impFib, x,
+        Let (a, Ref (Num 0),
+        Let (b, Ref (Num 1),
+        Let (loop', loopFunc,
+        App (Var loop', Var x)))))
     end
 
 end
