@@ -90,6 +90,27 @@ struct
   | IfZero of typ * exp * exp * exp
   | Op of typ * string * (int * int -> int) * exp * exp
 
+  val uu = Typ.Unknown
+
+  fun from0 (exp: Lang0.exp): exp =
+    case exp of
+      Lang0.Loc _ => raise Fail ("Lang1 does not have locations")
+    | Lang0.Num n => Num (uu, n)
+    | Lang0.Var v => Var (uu, v)
+    | Lang0.Ref e => Ref (uu, from0 e)
+    | Lang0.Bang e => Bang (uu, from0 e)
+    | Lang0.Upd (e1, e2) => Upd (uu, from0 e1, from0 e2)
+    | Lang0.Seq (e1, e2) => Seq (uu, from0 e1, from0 e2)
+    | Lang0.App (e1, e2) => App (uu, from0 e1, from0 e2)
+    | Lang0.Par (e1, e2) => Par (uu, from0 e1, from0 e2)
+    | Lang0.Fst e' => Fst (uu, from0 e')
+    | Lang0.Snd e' => Snd (uu, from0 e')
+    | Lang0.Let (v, e1, e2) => Let (uu, v, from0 e1, from0 e2)
+    | Lang0.Func (f, a, b) => Func (uu, f, a, from0 b)
+    | Lang0.Op (name, f, e1, e2) => Op (uu, name, f, from0 e1, from0 e2)
+    | Lang0.IfZero (e1, e2, e3) =>
+        IfZero (uu, from0 e1, from0 e2, from0 e3)
+
   fun fold (p as {combine=c: 'a * 'b -> 'b,
                   typ: typ -> 'a,
                   var: var -> 'a,
@@ -331,27 +352,6 @@ struct
         checkScoping (checkScoping vars ctx e1) ctx e2
     | IfZero (_, e1, e2, e3) =>
         checkScoping (checkScoping (checkScoping vars ctx e1) ctx e2) ctx e3
-
-  val uu = Typ.Unknown
-
-  fun from0 (exp: Lang0.exp): exp =
-    case exp of
-      Lang0.Loc _ => raise Fail ("Lang1 does not have locations")
-    | Lang0.Num n => Num (uu, n)
-    | Lang0.Var v => Var (uu, v)
-    | Lang0.Ref e => Ref (uu, from0 e)
-    | Lang0.Bang e => Bang (uu, from0 e)
-    | Lang0.Upd (e1, e2) => Upd (uu, from0 e1, from0 e2)
-    | Lang0.Seq (e1, e2) => Seq (uu, from0 e1, from0 e2)
-    | Lang0.App (e1, e2) => App (uu, from0 e1, from0 e2)
-    | Lang0.Par (e1, e2) => Par (uu, from0 e1, from0 e2)
-    | Lang0.Fst e' => Fst (uu, from0 e')
-    | Lang0.Snd e' => Snd (uu, from0 e')
-    | Lang0.Let (v, e1, e2) => Let (uu, v, from0 e1, from0 e2)
-    | Lang0.Func (f, a, b) => Func (uu, f, a, from0 b)
-    | Lang0.Op (name, f, e1, e2) => Op (uu, name, f, from0 e1, from0 e2)
-    | Lang0.IfZero (e1, e2, e3) =>
-        IfZero (uu, from0 e1, from0 e2, from0 e3)
 
   (* To implement unification of type constraints on variables, we do multiple
    * passes over the program. We begin by annotating every expression with an
