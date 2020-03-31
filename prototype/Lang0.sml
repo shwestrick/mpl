@@ -29,6 +29,7 @@ struct
   fun OpAdd (e1, e2) = Op ("+", op+, e1, e2)
   fun OpSub (e1, e2) = Op ("-", op-, e1, e2)
   fun OpMul (e1, e2) = Op ("*", op*, e1, e2)
+  fun OpDiv (e1, e2) = Op ("/", fn (x, y) => x div y, e1, e2)
 
   fun parens s = "(" ^ s ^ ")"
 
@@ -347,6 +348,28 @@ struct
         Let (b, Ref (Num 1),
         Let (loop', loopFunc,
         App (Var loop', Var x)))))
+    end
+
+  val sum: exp =
+    let
+      val sum = Id.new "sum"
+      val range = Id.new "range"
+      val i = Id.new "i"
+      val j = Id.new "j"
+      val mid = Id.new "mid"
+      val c = Id.new "c"
+
+      val body =
+        Let (i, Fst (Var range),
+        Let (j, Snd (Var range),
+          IfZero (OpSub (Var j, Var i), Num 0,
+          IfZero (OpSub (Var j, OpAdd (Var i, Num 1)), Var i,
+          Let (mid, OpAdd (Var i, OpDiv (OpSub (Var j, Var i), Num 2)),
+          Let (c, Par (App (Var sum, Par (Var i, Var mid)),
+                       App (Var sum, Par (Var mid, Var j))),
+            OpAdd (Fst (Var c), Snd (Var c))))))))
+    in
+      Func (sum, range, body)
     end
 
 end
