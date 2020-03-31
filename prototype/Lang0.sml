@@ -11,7 +11,7 @@ struct
 
   datatype exp =
     Var of var
-  | Loc of loc (* "internal"; not visible to Langs 1 and 2 *)
+  | Loc of loc (* "internal"; not visible to other langs *)
   | Ref of exp
   | Upd of exp * exp
   | Bang of exp
@@ -117,7 +117,8 @@ struct
 
   fun step (m, e) =
     case e of
-      Num x    => NONE
+      Var x    => NONE
+    | Num x    => NONE
     | Loc x    => NONE
     | App x    => SOME (stepApp m x)
     | Par x    => SOME (stepPar m x)
