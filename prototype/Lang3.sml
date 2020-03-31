@@ -16,7 +16,8 @@ struct
     type d = depth
 
     datatype t =
-      Top
+      Unknown
+    | Top
     | Bot
     | Num of d
     | Ref of d * t
@@ -27,8 +28,9 @@ struct
 
     fun toString t =
       case t of
-        Top => "?"
-      | Bot => "!!"
+        Unknown => "_"
+      | Top => "any"
+      | Bot => "void"
       | Num d => "num@" ^ Int.toString d
       | Ref (d, t) => toString t ^ " ref@" ^ Int.toString d
       | GRef (d, t) => toString t ^ " gref@" ^ Int.toString d
@@ -50,7 +52,8 @@ struct
 
     fun equal x y =
       case (x, y) of
-        (Top, Top) => true
+        (Unknown, Unknown) => true
+      | (Top, Top) => true
       | (Bot, Bot) => true
       | (Num d, Num d') => d = d'
       | (Ref (d, t), Ref (d', t')) => d = d' andalso equal t t'
@@ -72,6 +75,16 @@ struct
       | Arr (d, t1, t2) => hasBots t1 orelse hasBots t2
       | _ => false
 
+    fun hasUnknowns ty =
+      case ty of
+        Unknown => true
+      | Ref (d, t) => hasUnknowns t
+      | GRef (d, t) => hasUnknowns t
+      | SRef (d, t) => hasUnknowns t
+      | Prod (d, t1, t2) => hasUnknowns t1 orelse hasUnknowns t2
+      | Arr (d, t1, t2) => hasUnknowns t1 orelse hasUnknowns t2
+      | _ => false
+
     fun hasTops ty =
       case ty of
         Top => true
@@ -87,7 +100,8 @@ struct
 
     fun capAt d' ty =
       case ty of
-        Top => Top
+        Unknown => Unknown
+      | Top => Top
       | Bot => Bot
       | Num d => Num (min d d')
       | Ref (d, t) => Ref (min d d', capAt d' t)
@@ -96,21 +110,61 @@ struct
       | Prod (d, t1, t2) => Prod (min d d', capAt d' t1, capAt d' t2)
       | Arr (d, t1, t2) => Arr (min d d', capAt d' t1, capAt d' t2)
 
+    val omap = Option.map
+
+    fun omap2 f (SOME x, SOME y) = SOME (f (x, y))
+      | omap2 _ _ = NONE
+
+    fun unifyHoles x y =
+      case (x, y) of
+        (Unknown, _) => SOME y
+      | (_, Unknown) => SOME x
+      | (Top, Top) => SOME Top
+      | (Bot, Bot) => SOME Bot
+      | (Num d, Num d') =>
+          if d <> d' then NONE
+          else SOME (Num d)
+      | (Ref (d, t), Ref (d', t')) =>
+          if d <> d' then NONE
+          else omap (fn tt => Ref (d, tt)) (unifyHoles t t')
+      | (GRef (d, t), GRef (d', t')) =>
+          if d <> d' then NONE
+          else omap (fn tt => GRef (d, tt)) (unifyHoles t t')
+      | (SRef (d, t), SRef (d', t')) =>
+          if d <> d' then NONE
+          else omap (fn tt => SRef (d, tt)) (unifyHoles t t')
+      | (Arr (d, t1, t2), Arr (d', t1', t2')) =>
+          if d <> d' then NONE
+          else omap2 (fn (tt1, tt2) => Arr (d, tt1, tt2))
+               (unifyHoles t1 t1', unifyHoles t2 t2')
+      | (Prod (d, t1, t2), Prod (d', t1', t2')) =>
+          if d <> d' then NONE
+          else omap2 (fn (tt1, tt2) => Prod (d, tt1, tt2))
+               (unifyHoles t1 t1', unifyHoles t2 t2')
+      | _ => NONE
+
     fun leq x y = equal x (glb x y)
 
     and glb x y =
       case (x, y) of
-        (Num d, Num d') => Num (min d d')
+        (Unknown, _) => y
+      | (_, Unknown) => x
+
+      | (Num d, Num d') => Num (min d d')
 
       | (Ref (d, t), Ref (d', t')) =>
-          if equal t t' then Ref (min d d', t) else Bot
+          (case unifyHoles t t' of
+             NONE => Bot
+           | SOME tt => Ref (min d d', tt))
       | (Ref (d, t), GRef (d', t')) => Ref (min d d', glb t t')
       | (Ref (d, t), SRef (d', t')) => Ref (min d d', lub t t')
 
       | (GRef _, Ref _) => glb y x
       | (GRef (d, t), GRef (d', t')) => GRef (min d d', glb t t')
       | (GRef (d, t), SRef (d', t')) =>
-          if equal t t' then Ref (min d d', t) else Bot
+          (case unifyHoles t t' of
+             NONE => Bot
+           | SOME tt => Ref (min d d', tt))
 
       | (SRef _, Ref _) => glb y x
       | (SRef _, GRef _) => glb y x
@@ -130,17 +184,21 @@ struct
 
     and lub x y =
       case (x, y) of
-        (Num d, Num d') => Num (max d d')
+        (Unknown, _) => y
+      | (_, Unknown) => x
+
+      | (Num d, Num d') => Num (max d d')
 
       | (Ref (d, t), Ref (d', t')) =>
-          if equal t t' then
-            Ref (max d d', t)
-          else if leq t t' then
-            GRef (max d d', t')
-          else if leq t' t then
-            SRef (max d d', t)
-          else
-            Top
+          (case unifyHoles t t' of
+             SOME tt => Ref (max d d', tt)
+           | NONE =>
+              if leq t t' then
+                GRef (max d d', t')
+              else if leq t' t then
+                SRef (max d d', t)
+              else
+                Top)
       | (Ref (d, t), GRef (d', t')) => GRef (max d d', lub t t')
       | (Ref (d, t), SRef (d', t')) => SRef (max d d', glb t t')
 
@@ -253,26 +311,26 @@ struct
       if needsP then parens (toString e) else toString e
     end
 
-  val tt = Typ.Top
+  val uu = Typ.Unknown
 
   fun from0 (exp: Lang0.exp): exp =
     case exp of
       Lang0.Loc _ => raise Fail ("Lang3 does not have locations")
-    | Lang0.Num n => Num (tt, n)
-    | Lang0.Var v => Var (tt, v)
-    | Lang0.Ref e => Ref (tt, from0 e)
-    | Lang0.Bang e => Bang (tt, from0 e)
-    | Lang0.Upd (e1, e2) => Upd (tt, from0 e1, from0 e2)
-    | Lang0.Seq (e1, e2) => Seq (tt, from0 e1, from0 e2)
-    | Lang0.App (e1, e2) => App (tt, from0 e1, from0 e2)
-    | Lang0.Par (e1, e2) => Par (tt, from0 e1, from0 e2)
-    | Lang0.Fst e' => Fst (tt, from0 e')
-    | Lang0.Snd e' => Snd (tt, from0 e')
-    | Lang0.Let (v, e1, e2) => Let (tt, v, from0 e1, from0 e2)
-    | Lang0.Func (f, a, b) => Func (tt, f, a, from0 b)
-    | Lang0.Op (name, f, e1, e2) => Op (tt, name, f, from0 e1, from0 e2)
+    | Lang0.Num n => Num (uu, n)
+    | Lang0.Var v => Var (uu, v)
+    | Lang0.Ref e => Ref (uu, from0 e)
+    | Lang0.Bang e => Bang (uu, from0 e)
+    | Lang0.Upd (e1, e2) => Upd (uu, from0 e1, from0 e2)
+    | Lang0.Seq (e1, e2) => Seq (uu, from0 e1, from0 e2)
+    | Lang0.App (e1, e2) => App (uu, from0 e1, from0 e2)
+    | Lang0.Par (e1, e2) => Par (uu, from0 e1, from0 e2)
+    | Lang0.Fst e' => Fst (uu, from0 e')
+    | Lang0.Snd e' => Snd (uu, from0 e')
+    | Lang0.Let (v, e1, e2) => Let (uu, v, from0 e1, from0 e2)
+    | Lang0.Func (f, a, b) => Func (uu, f, a, from0 b)
+    | Lang0.Op (name, f, e1, e2) => Op (uu, name, f, from0 e1, from0 e2)
     | Lang0.IfZero (e1, e2, e3) =>
-        IfZero (tt, from0 e1, from0 e2, from0 e3)
+        IfZero (uu, from0 e1, from0 e2, from0 e3)
 
   fun fold (p as {combine=c: 'a * 'b -> 'b,
                   typ: typ -> 'a,
@@ -321,6 +379,14 @@ struct
   fun hasBots e =
     fold {combine = (fn (a, b) => a orelse b),
           typ = Typ.hasBots,
+          var = (fn _ => false),
+          num = (fn _ => false)}
+         false
+         e
+
+  fun hasUnknowns e =
+    fold {combine = (fn (a, b) => a orelse b),
+          typ = Typ.hasUnknowns,
           var = (fn _ => false),
           num = (fn _ => false)}
          false
@@ -493,6 +559,15 @@ struct
                 ^ "expected type " ^ Typ.toString t ^ " but found variable "
                 ^ Id.toString v ^ " of type " ^ Typ.toString t')
             in
+              if Typ.equal t' t'' then () else
+                print ("var " ^ Id.toString v ^ " needs to have type "
+                       ^ Typ.toString t
+                       ^ " and was previously recorded as having type "
+                       ^ Typ.toString t'
+                       ^ "; now updating it to "
+                       ^ Typ.toString t''
+                       ^ "\n");
+
               {vars = IdTable.insert (v, t'') vars,
                exp = Var (t'', v)}
             end)
@@ -545,7 +620,7 @@ struct
           val (t1, t2) =
             case t of
               Typ.Prod (_, t1, t2) => (t1, t2)
-            | _ => (Typ.Top, Typ.Top)
+            | _ => (Typ.Unknown, Typ.Unknown)
 
           val {vars, exp=e1'} =
             refineTyp
@@ -584,7 +659,7 @@ struct
 
     | Fst (t, ee) =>
         let
-          val tee = Typ.Prod (depth, t, Typ.Top)
+          val tee = Typ.Prod (depth, t, Typ.Unknown)
           val {vars, exp=ee'} =
             refineTyp
               { vars = vars
@@ -610,7 +685,7 @@ struct
 
     | Snd (t, ee) =>
         let
-          val tee = Typ.Prod (depth, Typ.Top, t)
+          val tee = Typ.Prod (depth, Typ.Unknown, t)
           val {vars, exp=ee'} =
             refineTyp
               { vars = vars
@@ -639,7 +714,7 @@ struct
           val tee =
             case t of
               Typ.Ref (_, t') => t'
-            | _ => Typ.Top
+            | _ => Typ.Unknown
 
           val {vars, exp=ee'} =
             refineTyp
@@ -772,7 +847,7 @@ struct
             ^ Typ.toString t1New ^ " but apparently it has type "
             ^ Typ.toString t1Old)
 
-          val vars = IdTable.insertWith updateVarTyp (v, Typ.Top) vars
+          val vars = IdTable.insertWith updateVarTyp (v, Typ.Unknown) vars
           val t1 = valOf (IdTable.lookup v vars)
 
           val {vars, exp=e1'} =
@@ -814,7 +889,7 @@ struct
           val (t1, t2) =
             case t of
               Typ.Arr (_, t1, t2) => (t1, t2)
-            | _ => (Typ.Top, Typ.Top)
+            | _ => (Typ.Unknown, Typ.Unknown)
 
           val t' = Typ.Arr (depth, t1, t2)
 
@@ -831,7 +906,7 @@ struct
           val (t1, t2) =
             case valOf (IdTable.lookup func vars) of
               Typ.Arr (_, t1, t2) => (t1, t2)
-            | _ => (Typ.Top, Typ.Top)
+            | _ => (Typ.Unknown, Typ.Unknown)
 
           val t' = Typ.Arr (depth, t1, t2)
 
@@ -970,7 +1045,7 @@ struct
 
       val exp = loop IdTable.empty exp
     in
-      if hasTops exp then
+      if hasUnknowns exp then
         print "WARNING: final type assignment has unknowns\n"
       else
         ();
