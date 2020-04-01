@@ -17,8 +17,6 @@ struct
 
     datatype t =
       Unknown
-    | Top
-    | Bot
     | Num of d
     | Ref of d * t * t
     | Prod of d * t list
@@ -27,8 +25,6 @@ struct
     fun toString t =
       case t of
         Unknown => "_"
-      | Top => "any"
-      | Bot => "void"
       | Num d => "num@" ^ Int.toString d
       | Ref (d, t1, t2) =>
           parens (toString t1 ^ ", " ^ toString t2) ^ " ref@" ^ Int.toString d
@@ -41,8 +37,6 @@ struct
     fun equal x y =
       case (x, y) of
         (Unknown, Unknown) => true
-      | (Top, Top) => true
-      | (Bot, Bot) => true
       | (Num d, Num d') => d = d'
       | (Ref (d, t1, t2), Ref (d', t1', t2')) =>
           d = d' andalso equal t1 t1' andalso equal t2 t2'
@@ -54,14 +48,6 @@ struct
           d = d' andalso equal t1 t1' andalso equal t2 t2'
       | _ => false
 
-    fun hasBots ty =
-      case ty of
-        Bot => true
-      | Ref (d, t1, t2) => hasBots t1 orelse hasBots t2
-      | Prod (d, ts) => List.exists hasBots ts
-      | Arr (d, t1, t2) => hasBots t1 orelse hasBots t2
-      | _ => false
-
     fun hasUnknowns ty =
       case ty of
         Unknown => true
@@ -70,81 +56,50 @@ struct
       | Arr (d, t1, t2) => hasUnknowns t1 orelse hasUnknowns t2
       | _ => false
 
-    fun hasTops ty =
-      case ty of
-        Top => true
-      | Ref (d, t1, t2) => hasTops t1 orelse hasTops t2
-      | Prod (d, ts) => List.exists hasTops ts
-      | Arr (d, t1, t2) => hasTops t1 orelse hasTops t2
-      | _ => false
-
     fun min d d' = Int.min (d, d')
     fun max d d' = Int.max (d, d')
 
     fun capAt d' ty =
       case ty of
         Unknown => Unknown
-      | Top => Top
-      | Bot => Bot
       | Num d => Num (min d d')
       | Ref (d, t1, t2) => Ref (min d d', capAt d' t1, capAt d' t2)
       | Prod (d, ts) => Prod (min d d', List.map (capAt d') ts)
       | Arr (d, t1, t2) => Arr (min d d', capAt d' t1, capAt d' t2)
 
-    val omap = Option.map
-
-    fun omap2 f (SOME x, SOME y) = SOME (f (x, y))
-      | omap2 _ _ = NONE
+    exception Overconstrained
 
     fun glb x y =
       case (x, y) of
         (Unknown, _) => y
       | (_, Unknown) => x
-
       | (Num d, Num d') => Num (min d d')
-
       | (Ref (d, t1, t2), Ref (d', t1', t2')) =>
           Ref (min d d', lub t1 t1', glb t2 t2')
-
       | (Arr (d, t1, t2), Arr (d', t1', t2')) =>
           Arr (min d d', lub t1 t1', glb t2 t2')
-
       | (Prod (d, ts), Prod (d', ts')) =>
           if List.length ts = List.length ts' then
             Prod (min d d', Util.zipWith glb ts ts')
           else
-            Bot
-
-      | (Top, _) => y
-
-      | (_, Top) => x
-
-      | _ => Bot
+            raise Overconstrained
+      | _ => raise Overconstrained
 
     and lub x y =
       case (x, y) of
         (Unknown, _) => y
       | (_, Unknown) => x
-
       | (Num d, Num d') => Num (max d d')
-
       | (Ref (d, t1, t2), Ref (d', t1', t2')) =>
           Ref (max d d', glb t1 t1', lub t2 t2')
-
       | (Arr (d, t1, t2), Arr (d', t1', t2')) =>
           Arr (max d d', glb t1 t1', lub t2 t2')
-
       | (Prod (d, ts), Prod (d', ts')) =>
           if List.length ts = List.length ts' then
             Prod (max d d', Util.zipWith lub ts ts')
           else
-            Top
-
-      | (Bot, _) => y
-
-      | (_, Bot) => x
-
-      | _ => Top
+            raise Overconstrained
+      | _ => raise Overconstrained
 
     fun unify (t1, t2) = glb t1 t2
 
@@ -292,22 +247,6 @@ struct
         fold p (fold p (fold p (c (typ t, b)) e1) e2) e3
     | Op (t, _, _, e1, e2) =>
         fold p (fold p (c (typ t, b)) e1) e2
-
-  fun hasTops e =
-    fold {combine = (fn (a, b) => a orelse b),
-          typ = Typ.hasTops,
-          var = (fn _ => false),
-          num = (fn _ => false)}
-         false
-         e
-
-  fun hasBots e =
-    fold {combine = (fn (a, b) => a orelse b),
-          typ = Typ.hasBots,
-          var = (fn _ => false),
-          num = (fn _ => false)}
-         false
-         e
 
   fun hasUnknowns e =
     fold {combine = (fn (a, b) => a orelse b),
@@ -459,16 +398,7 @@ struct
     | Op (t, name, f, e1, e2) => Op (Typ.glb t t', name, f, e1, e2)
     | IfZero (t, e1, e2, e3) => IfZero (Typ.glb t t', e1, e2, e3)
 
-  exception Overconstrained
-
-  val refineRootTyp = (fn exp => fn t =>
-    let
-      val exp' = refineRootTyp exp t
-    in
-      case typOf exp' of
-        Typ.Bot => raise Overconstrained
-      | _ => exp'
-    end)
+  exception Overconstrained = Typ.Overconstrained
 
   fun refineTyp {vars: Typ.t IdTable.t, depth: int, exp: exp}
                : {vars: Typ.t IdTable.t, exp: exp} =
