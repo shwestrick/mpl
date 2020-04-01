@@ -17,9 +17,9 @@ struct
   | Bang of exp
   | Seq of exp * exp
   | App of exp * exp
-  | Par of exp * exp
-  | Fst of exp
-  | Snd of exp
+  | Par of exp list   (* arbitrarily wide tuples *)
+  | Tuple of exp list (* arbitrarily wide tuples *)
+  | Select of int * exp
   | Let of var * exp * exp
   | Func of var * var * exp (* function name, argument, function body *)
   | Num of int
@@ -45,10 +45,11 @@ struct
         toStringP e1 ^ " " ^ toStringP e2
     | Seq (e1, e2) =>
         toStringP e1 ^ " ; " ^ toStringP e2
-    | Par (e1, e2) =>
-        toStringP e1 ^ " || " ^ toStringP e2
-    | Fst e' => "fst " ^ toStringP e'
-    | Snd e' => "snd " ^ toStringP e'
+    | Par es =>
+        "(" ^ String.concatWith " || " (List.map toString es) ^ ")"
+    | Tuple es =>
+        "(" ^ String.concatWith "," (List.map toString es) ^ ")"
+    | Select (n, e') => "#" ^ Int.toString n ^ " " ^ toStringP e'
     | Let (v, e1, e2) =>
         "let " ^ Id.toString v ^ " = " ^ toString e1 ^ " in " ^ toString e2
     | Func (func, arg, body) =>
@@ -63,11 +64,9 @@ struct
       val needsP =
         case e of
           App _ => true
-        | Par _ => true
         | Op _ => true
         | IfZero _ => true
-        | Fst _ => true
-        | Snd _ => true
+        | Select _ => true
         | Let _ => true
         | Func _ => true
         | Upd _ => true
@@ -81,7 +80,7 @@ struct
   fun deFunc e = case e of Func x => x | _ => raise Fail "deFunc"
   fun deNum e = case e of Num x => x | _ => raise Fail "deNum"
   fun deLoc e = case e of Loc l => l | _ => raise Fail "deLoc"
-  fun dePar e = case e of Par x => x | _ => raise Fail "dePar"
+  fun deTuple e = case e of Tuple x => x | _ => raise Fail "deTuple"
   fun deRef e = case e of Ref x => x | _ => raise Fail "deRef"
 
   (* substitute [e'/x]e *)
@@ -98,10 +97,10 @@ struct
       | Upd (e1, e2) => Upd (doit e1, doit e2)
       | Bang e' => Bang (doit e')
       | App (e1, e2) => App (doit e1, doit e2)
-      | Par (e1, e2) => Par (doit e1, doit e2)
+      | Par es => Par (List.map doit es)
       | Seq (e1, e2) => Seq (doit e1, doit e2)
-      | Fst e' => Fst (doit e')
-      | Snd e' => Snd (doit e')
+      | Tuple es => Tuple (List.map doit es)
+      | Select (n, e') => Select (n, doit e')
       | Let (v, e1, e2) => Let (v, doit e1, doit e2)
       | Func (func, arg, body) => Func (func, arg, doit body)
       | Op (name, f, e1, e2) => Op (name, f, doit e1, doit e2)
@@ -123,8 +122,8 @@ struct
     | Loc x    => NONE
     | App x    => SOME (stepApp m x)
     | Par x    => SOME (stepPar m x)
-    | Fst x    => SOME (stepFst m x)
-    | Snd x    => SOME (stepSnd m x)
+    | Tuple x  => SOME (stepTuple m x)
+    | Select x => SOME (stepSelect m x)
     | Let x    => SOME (stepLet m x)
     | Op x     => SOME (stepOp m x)
     | IfZero x => SOME (stepIfZero m x)
@@ -147,30 +146,44 @@ struct
               (m, subst (e1, func) (subst (e2, arg) body))
             end
 
-  and stepPar m (e1, e2) =
-    case step (m, e1) of
-      SOME (m', e1') => (m', Par (e1', e2))
+  and stepPar m es =
+    case stepFirstThatCan m es of
+      SOME (m', es') => (m', Par es')
+    | NONE => (m, Tuple es)
+
+  and stepTuple m es =
+    case stepFirstThatCan m es of
+      SOME (m', es') => (m', Tuple es')
     | NONE =>
-        case step (m, e2) of
-          SOME (m', e2') => (m', Par (e1, e2'))
+        let
+          val l = Id.loc ()
+        in
+          (IdTable.insert (l, Tuple es) m, Loc l)
+        end
+
+  (* Walk through es, trying to step each expression, from left to right.
+   * as soon as we find an e -> e', we replace e with e' and back out,
+   * returning the updated memory. If no expression can step, then we
+   * are done stepping this group of expressions. This is used to implement
+   * both Tuple stepping, and Par stepping. Really, Par stepping should be
+   * parallel or interleaved, but whatever.
+   *)
+  and stepFirstThatCan m es =
+    case es of
+      [] => NONE
+    | e :: rest =>
+        case step (m, e) of
+          SOME (m', e') => SOME (m', e' :: rest)
         | NONE =>
-            let
-              val l = Id.loc ()
-            in
-              (IdTable.insert (l, Par (e1, e2)) m, Loc l)
-            end
+            case stepFirstThatCan m rest of
+              SOME (m', rest') => SOME (m', e :: rest')
+            | NONE => NONE
 
-  and stepFst m e =
+  and stepSelect m (n, e) =
     case step (m, e) of
-      SOME (m', e') => (m', Fst e')
+      SOME (m', e') => (m', Select (n, e'))
     | NONE =>
-        (m, #1 (dePar (getLoc (deLoc e) m)))
-
-  and stepSnd m e =
-    case step (m, e) of
-      SOME (m', e') => (m', Snd e')
-    | NONE =>
-        (m, #2 (dePar (getLoc (deLoc e) m)))
+        (m, List.nth (deTuple (getLoc (deLoc e) m), n-1))
 
   and stepLet m (v, e1, e2) =
     case step (m, e1) of
@@ -258,6 +271,9 @@ struct
 
   (* ======================================================================= *)
 
+  fun Fst e = Select (1, e)
+  fun Snd e = Select (2, e)
+
   val fact: exp =
     let
       val f = Id.new "fact"
@@ -287,7 +303,7 @@ struct
     in
       (* make f the identity function, but apply it to two different
        * arguments. we don't have polymorphism! *)
-      Let (ff, idFunc, Par (App (Var ff, Num 1), App (Var ff, (Par (Num 2, Num 3)))))
+      Let (ff, idFunc, Par [App (Var ff, Num 1), App (Var ff, (Par [Num 2, Num 3]))])
     end
 
   val parAdd: exp =
@@ -296,19 +312,19 @@ struct
       val right = OpAdd (Num 3, Num 4)
       val x = Id.new "x"
     in
-      Let (x, Par (left, right), OpAdd (Fst (Var x), Snd (Var x)))
+      Let (x, Par [left, right], OpAdd (Select (1, Var x), Select (2, Var x)))
     end
 
   val iterFib: exp =
     let
-      (* iterFib takes x = ((a, b), n) where a and b are the two most recent *)
+      (* iterFib takes x = (a, b, n) where a and b are the two most recent *)
       val iterFib = Id.new "iterFib"
       val x = Id.new "x"
-      val a = Fst (Fst (Var x))
-      val b = Snd (Fst (Var x))
-      val n = Snd (Var x)
+      val a = Select (1, Var x)
+      val b = Select (2, Var x)
+      val n = Select (3, Var x)
       val elseBranch =
-        App (Var iterFib, Par (Par (b, OpAdd (a, b)), OpSub (n, Num 1)))
+        App (Var iterFib, Tuple [b, OpAdd (a, b), OpSub (n, Num 1)])
       val body = IfZero (n, a, elseBranch)
     in
       Func (iterFib, x, body)
@@ -319,7 +335,7 @@ struct
       val fib = Id.new "fib"
       val n = Id.new "n"
     in
-      Func (fib, n, App (iterFib, Par (Par (Num 0, Num 1), Var n)))
+      Func (fib, n, App (iterFib, Tuple [Num 0, Num 1, Var n]))
     end
 
   val impFib: exp =
@@ -360,14 +376,14 @@ struct
       val c = Id.new "c"
 
       val body =
-        Let (i, Fst (Var range),
-        Let (j, Snd (Var range),
+        Let (i, Select (1, Var range),
+        Let (j, Select (2, Var range),
           IfZero (OpSub (Var j, Var i), Num 0,
           IfZero (OpSub (Var j, OpAdd (Var i, Num 1)), Var i,
           Let (mid, OpAdd (Var i, OpDiv (OpSub (Var j, Var i), Num 2)),
-          Let (c, Par (App (Var sum, Par (Var i, Var mid)),
-                       App (Var sum, Par (Var mid, Var j))),
-            OpAdd (Fst (Var c), Snd (Var c))))))))
+          Let (c, Par [App (Var sum, Tuple [Var i, Var mid]),
+                       App (Var sum, Tuple [Var mid, Var j])],
+            OpAdd (Select (1, Var c), Select (2, Var c))))))))
     in
       Func (sum, range, body)
     end

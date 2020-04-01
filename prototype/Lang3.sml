@@ -23,7 +23,7 @@ struct
     | Ref of d * t
     | GRef of d * t
     | SRef of d * t
-    | Prod of d * t * t
+    | Prod of d * t list
     | Arr of d * t * t
 
     fun toString t =
@@ -35,8 +35,9 @@ struct
       | Ref (d, t) => toString t ^ " ref@" ^ Int.toString d
       | GRef (d, t) => toString t ^ " gref@" ^ Int.toString d
       | SRef (d, t) => toString t ^ " sref@" ^ Int.toString d
-      | Prod (d, t1, t2) =>
-          parens (toString t1 ^ " * " ^ toString t2) ^ "@" ^ Int.toString d
+      | Prod (d, ts) =>
+          parens (String.concatWith " * " (List.map toString ts))
+          ^ "@" ^ Int.toString d
       | Arr (d, t1, t2) =>
           parens (toString t1 ^ " -> " ^ toString t2) ^ "@" ^ Int.toString d
 
@@ -46,7 +47,7 @@ struct
       | Ref (d, _) => d
       | GRef (d, _) => d
       | SRef (d, _) => d
-      | Prod (d, _, _) => d
+      | Prod (d, _) => d
       | Arr (d, _, _) => d
       | _ => raise Fail ("Lang3.Typ.depthOf: " ^ toString t)
 
@@ -59,8 +60,10 @@ struct
       | (Ref (d, t), Ref (d', t')) => d = d' andalso equal t t'
       | (GRef (d, t), GRef (d', t')) => d = d' andalso equal t t'
       | (SRef (d, t), SRef (d', t')) => d = d' andalso equal t t'
-      | (Prod (d, t1, t2), Prod (d', t1', t2')) =>
-          d = d' andalso equal t1 t1' andalso equal t2 t2'
+      | (Prod (d, ts), Prod (d', ts')) =>
+          d = d'
+          andalso List.length ts = List.length ts'
+          andalso Util.allTrue (Util.zipWith equal ts ts')
       | (Arr (d, t1, t2), Arr (d', t1', t2')) =>
           d = d' andalso equal t1 t1' andalso equal t2 t2'
       | _ => false
@@ -71,7 +74,7 @@ struct
       | Ref (d, t) => hasBots t
       | GRef (d, t) => hasBots t
       | SRef (d, t) => hasBots t
-      | Prod (d, t1, t2) => hasBots t1 orelse hasBots t2
+      | Prod (d, ts) => List.exists hasBots ts
       | Arr (d, t1, t2) => hasBots t1 orelse hasBots t2
       | _ => false
 
@@ -81,7 +84,7 @@ struct
       | Ref (d, t) => hasUnknowns t
       | GRef (d, t) => hasUnknowns t
       | SRef (d, t) => hasUnknowns t
-      | Prod (d, t1, t2) => hasUnknowns t1 orelse hasUnknowns t2
+      | Prod (d, ts) => List.exists hasUnknowns ts
       | Arr (d, t1, t2) => hasUnknowns t1 orelse hasUnknowns t2
       | _ => false
 
@@ -91,7 +94,7 @@ struct
       | Ref (d, t) => hasTops t
       | GRef (d, t) => hasTops t
       | SRef (d, t) => hasTops t
-      | Prod (d, t1, t2) => hasTops t1 orelse hasTops t2
+      | Prod (d, ts) => List.exists hasTops ts
       | Arr (d, t1, t2) => hasTops t1 orelse hasTops t2
       | _ => false
 
@@ -107,7 +110,7 @@ struct
       | Ref (d, t) => Ref (min d d', capAt d' t)
       | GRef (d, t) => GRef (min d d', capAt d' t)
       | SRef (d, t) => SRef (min d d', capAt d' t)
-      | Prod (d, t1, t2) => Prod (min d d', capAt d' t1, capAt d' t2)
+      | Prod (d, ts) => Prod (min d d', List.map (capAt d') ts)
       | Arr (d, t1, t2) => Arr (min d d', capAt d' t1, capAt d' t2)
 
     val omap = Option.map
@@ -137,10 +140,22 @@ struct
           if d <> d' then NONE
           else omap2 (fn (tt1, tt2) => Arr (d, tt1, tt2))
                (unifyHoles t1 t1', unifyHoles t2 t2')
-      | (Prod (d, t1, t2), Prod (d', t1', t2')) =>
-          if d <> d' then NONE
-          else omap2 (fn (tt1, tt2) => Prod (d, tt1, tt2))
-               (unifyHoles t1 t1', unifyHoles t2 t2')
+      | (Prod (d, ts), Prod (d', ts')) =>
+          if d <> d' then
+            NONE
+          else if List.length ts <> List.length ts' then
+            NONE
+          else
+            let
+              val unified =
+                List.mapPartial (fn x => x) (Util.zipWith unifyHoles ts ts')
+            in
+              if List.length unified = List.length ts then
+                SOME (Prod (d, unified))
+              else
+                NONE
+            end
+
       | _ => NONE
 
     fun leq x y = equal x (glb x y)
@@ -173,8 +188,11 @@ struct
       | (Arr (d, t1, t2), Arr (d', t1', t2')) =>
           Arr (min d d', lub t1 t1', glb t2 t2')
 
-      | (Prod (d, t1, t2), Prod (d', t1', t2')) =>
-          Prod (min d d', glb t1 t1', glb t2 t2')
+      | (Prod (d, ts), Prod (d', ts')) =>
+          if List.length ts = List.length ts' then
+            Prod (min d d', Util.zipWith glb ts ts')
+          else
+            Bot
 
       | (Top, _) => y
 
@@ -211,8 +229,11 @@ struct
       | (Arr (d, t1, t2), Arr (d', t1', t2')) =>
           Arr (max d d', glb t1 t1', lub t2 t2')
 
-      | (Prod (d, t1, t2), Prod (d', t1', t2')) =>
-          Prod (max d d', lub t1 t1', lub t2 t2')
+      | (Prod (d, ts), Prod (d', ts')) =>
+          if List.length ts = List.length ts' then
+            Prod (max d d', Util.zipWith lub ts ts')
+          else
+            Top
 
       | (Bot, _) => y
 
@@ -234,9 +255,9 @@ struct
   | Bang of typ * exp
   | Seq of typ * exp * exp
   | App of typ * exp * exp
-  | Par of typ * exp * exp
-  | Fst of typ * exp
-  | Snd of typ * exp
+  | Par of typ * exp list
+  | Tuple of typ * exp list
+  | Select of typ * int * exp
   | Let of typ * var * exp * exp
   | Func of typ * var * var * exp
   | IfZero of typ * exp * exp * exp
@@ -251,9 +272,9 @@ struct
     | Upd (t, _, _) => t
     | Seq (t, _, _) => t
     | App (t, _, _) => t
-    | Par (t, _, _) => t
-    | Fst (t, _) => t
-    | Snd (t, _) => t
+    | Par (t, _) => t
+    | Tuple (t, _) => t
+    | Select (t, _, _) => t
     | Let (t, _, _, _) => t
     | Func (t, _, _, _) => t
     | IfZero (t, _, _, _) => t
@@ -270,10 +291,11 @@ struct
         toStringP e1 ^ " " ^ toStringP e2
     | Seq (_, e1, e2) =>
         toStringP e1 ^ "; " ^ toStringP e2
-    | Par (_, e1, e2) =>
-        toStringP e1 ^ " || " ^ toStringP e2
-    | Fst (_, e') => "fst " ^ toStringP e'
-    | Snd (_, e') => "snd " ^ toStringP e'
+    | Par (_, es) =>
+        "(" ^ String.concatWith " || " (List.map toString es) ^ ")"
+    | Tuple (_, es) =>
+        "(" ^ String.concatWith "," (List.map toString es) ^ ")"
+    | Select (_, n, e') => "#" ^ Int.toString n ^ " " ^ toStringP e'
     | Let (_, v, e1, e2) =>
         let
           val vStr = Id.toString v ^ ": " ^ Typ.toString (typOf e1)
@@ -296,11 +318,9 @@ struct
       val needsP =
         case e of
           App _ => true
-        | Par _ => true
         | Op _ => true
         | IfZero _ => true
-        | Fst _ => true
-        | Snd _ => true
+        | Select _ => true
         | Let _ => true
         | Func _ => true
         | Upd _ => true
@@ -323,9 +343,9 @@ struct
     | Lang0.Upd (e1, e2) => Upd (uu, from0 e1, from0 e2)
     | Lang0.Seq (e1, e2) => Seq (uu, from0 e1, from0 e2)
     | Lang0.App (e1, e2) => App (uu, from0 e1, from0 e2)
-    | Lang0.Par (e1, e2) => Par (uu, from0 e1, from0 e2)
-    | Lang0.Fst e' => Fst (uu, from0 e')
-    | Lang0.Snd e' => Snd (uu, from0 e')
+    | Lang0.Par es => Par (uu, List.map from0 es)
+    | Lang0.Tuple es => Tuple (uu, List.map from0 es)
+    | Lang0.Select (n, e') => Select (uu, n, from0 e')
     | Lang0.Let (v, e1, e2) => Let (uu, v, from0 e1, from0 e2)
     | Lang0.Func (f, a, b) => Func (uu, f, a, from0 b)
     | Lang0.Op (name, f, e1, e2) => Op (uu, name, f, from0 e1, from0 e2)
@@ -353,11 +373,11 @@ struct
         fold p (fold p (c (typ t, b)) e1) e2
     | App (t, e1, e2) =>
         fold p (fold p (c (typ t, b)) e1) e2
-    | Par (t, e1, e2) =>
-        fold p (fold p (c (typ t, b)) e1) e2
-    | Fst (t, e') =>
-        fold p (c (typ t, b)) e'
-    | Snd (t, e') =>
+    | Par (t, es) =>
+        List.foldl (fn (ee, bb) => fold p bb ee) (c (typ t, b)) es
+    | Tuple (t, es) =>
+        List.foldl (fn (ee, bb) => fold p bb ee) (c (typ t, b)) es
+    | Select (t, _, e') =>
         fold p (c (typ t, b)) e'
     | Let (t, v, e1, e2) =>
         fold p (fold p (c (var v, c (typ t, b))) e1) e2
@@ -418,15 +438,17 @@ struct
         Typ.equal t1 t2 andalso
         equal x1 x2 andalso
         equal y1 y2
-    | (Par (t1, x1, y1), Par (t2, x2, y2)) =>
+    | (Par (t1, es1), Par (t2, es2)) =>
         Typ.equal t1 t2 andalso
-        equal x1 x2 andalso
-        equal y1 y2
-    | (Fst (t1, x1), Fst (t2, x2)) =>
+        List.length es1 = List.length es2 andalso
+        Util.allTrue (Util.zipWith equal es1 es2)
+    | (Tuple (t1, es1), Tuple (t2, es2)) =>
         Typ.equal t1 t2 andalso
-        equal x1 x2
-    | (Snd (t1, x1), Snd (t2, x2)) =>
+        List.length es1 = List.length es2 andalso
+        Util.allTrue (Util.zipWith equal es1 es2)
+    | (Select (t1, n1, x1), Select (t2, n2, x2)) =>
         Typ.equal t1 t2 andalso
+        n1 = n2 andalso
         equal x1 x2
     | (Let (t1, v1, a1, b1), Let (t2, v2, a2, b2)) =>
         Typ.equal t1 t2 andalso
@@ -473,11 +495,11 @@ struct
         checkScoping (checkScoping vars ctx e1) ctx e2
     | App (_, e1, e2) =>
         checkScoping (checkScoping vars ctx e1) ctx e2
-    | Par (_, e1, e2) =>
-        checkScoping (checkScoping vars ctx e1) ctx e2
-    | Fst (_, e) =>
-        checkScoping vars ctx e
-    | Snd (_, e) =>
+    | Par (_, es) =>
+        List.foldl (fn (e, vars) => checkScoping vars ctx e) vars es
+    | Tuple (_, es) =>
+        List.foldl (fn (e, vars) => checkScoping vars ctx e) vars es
+    | Select (_, _, e) =>
         checkScoping vars ctx e
     | Let (_, v, e1, e2) =>
         if IdSet.member v vars then
@@ -524,9 +546,9 @@ struct
     | Upd (t, e1, e2) => Upd (Typ.glb t t', e1, e2)
     | Seq (t, e1, e2) => Seq (Typ.glb t t', e1, e2)
     | App (t, e1, e2) => App (Typ.glb t t', e1, e2)
-    | Par (t, e1, e2) => Par (Typ.glb t t', e1, e2)
-    | Fst (t, e') => Fst (Typ.glb t t', e')
-    | Snd (t, e') => Snd (Typ.glb t t', e')
+    | Par (t, es) => Par (Typ.glb t t', es)
+    | Tuple (t, es) => Tuple (Typ.glb t t', es)
+    | Select (t, n, e') => Select (Typ.glb t t', n, e')
     | Let (t, v, e1, e2) => Let (Typ.glb t t', v, e1, e2)
     | Func (t, func, arg, body) => Func (Typ.glb t t', func, arg, body)
     | Op (t, name, f, e1, e2) => Op (Typ.glb t t', name, f, e1, e2)
@@ -559,14 +581,14 @@ struct
                 ^ "expected type " ^ Typ.toString t ^ " but found variable "
                 ^ Id.toString v ^ " of type " ^ Typ.toString t')
             in
-              if Typ.equal t' t'' then () else
+              (* if Typ.equal t' t'' then () else
                 print ("var " ^ Id.toString v ^ " needs to have type "
                        ^ Typ.toString t
                        ^ " and was previously recorded as having type "
                        ^ Typ.toString t'
                        ^ "; now updating it to "
                        ^ Typ.toString t''
-                       ^ "\n");
+                       ^ "\n"); *)
 
               {vars = IdTable.insert (v, t'') vars,
                exp = Var (t'', v)}
@@ -615,97 +637,140 @@ struct
           }
         end
 
-    | Par (t, e1, e2) =>
+    | Par (t, es) =>
         let
-          val (t1, t2) =
+          fun refineSubExps vars idx ets =
+            case ets of
+              [] => (vars, [])
+            | ((ee, tee) :: rest) =>
+                let
+                  val {vars, exp=ee'} =
+                    refineTyp
+                      { vars = vars
+                      , depth = depth + 1
+                      , exp = refineRootTyp ee tee
+                          handle Overconstrained =>
+                          raise Fail ("Lang3.refineTyp Par: "
+                          ^ "expected component #" ^ Int.toString idx
+                          ^ "of type " ^ Typ.toString tee ^ " but found "
+                          ^ Typ.toString (typOf ee))
+                      }
+
+                  val (vars, rest') = refineSubExps vars (idx+1) rest
+                in
+                  (vars, ee' :: rest')
+                end
+
+          val n = List.length es
+          val default = List.tabulate (n, fn _ => Typ.Unknown)
+          val ts =
             case t of
-              Typ.Prod (_, t1, t2) => (t1, t2)
-            | _ => (Typ.Unknown, Typ.Unknown)
+              Typ.Prod (_, x) => if List.length x = n then x else default
+            | _ => default
 
-          val {vars, exp=e1'} =
-            refineTyp
-              { vars = vars
-              , depth = depth + 1
-              , exp = refineRootTyp e1 t1
-                  handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp Par: expected 1st component "
-                  ^ "of type " ^ Typ.toString t1 ^ " but found "
-                  ^ Typ.toString (typOf e1))
-              }
+          val ets =
+            Util.zipWith (fn ee => fn tee => (ee, tee)) es ts
 
-          val {vars, exp=e2'} =
-            refineTyp
-              { vars = vars
-              , depth = depth + 1
-              , exp = refineRootTyp e2 t2
-                  handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp Par: expected 2nd component "
-                  ^ "of type " ^ Typ.toString t2 ^ " but found "
-                  ^ Typ.toString (typOf e2))
-              }
+          val (vars, es') = refineSubExps vars 1 ets
 
-          val t' = Typ.Prod
-            ( depth
-            , Typ.capAt depth (typOf e1')
-            , Typ.capAt depth (typOf e2')
-            )
+          val t' =
+            Typ.Prod (depth, List.map (Typ.capAt depth o typOf) es')
         in
           { vars = vars
-          , exp = Par (Typ.unify (t, t'), e1', e2')
+          , exp = Par (Typ.unify (t, t'), es')
               handle Overconstrained =>
               raise Fail ("Lang3.refineTyp Par: bug in final refinement")
           }
         end
 
-    | Fst (t, ee) =>
+    | Tuple (t, es) =>
         let
-          val tee = Typ.Prod (depth, t, Typ.Unknown)
-          val {vars, exp=ee'} =
-            refineTyp
-              { vars = vars
-              , depth = depth
-              , exp = refineRootTyp ee tee
-                  handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp Fst: expected tuple of type "
-                  ^ Typ.toString tee ^ " but found "
-                  ^ Typ.toString (typOf ee))
-              }
+          fun refineSubExps vars idx ets =
+            case ets of
+              [] => (vars, [])
+            | ((ee, tee) :: rest) =>
+                let
+                  val {vars, exp=ee'} =
+                    refineTyp
+                      { vars = vars
+                      , depth = depth
+                      , exp = refineRootTyp ee tee
+                          handle Overconstrained =>
+                          raise Fail ("Lang3.refineTyp Tuple: "
+                          ^ "expected component #" ^ Int.toString idx
+                          ^ "of type " ^ Typ.toString tee ^ " but found "
+                          ^ Typ.toString (typOf ee))
+                      }
 
-          val t' =
-            case typOf ee' of
-              Typ.Prod (_, t', _) => t'
-            | _ => raise Fail ("Lang3.refineTyp Fst: bug")
+                  val (vars, rest') = refineSubExps vars (idx+1) rest
+                in
+                  (vars, ee' :: rest')
+                end
+
+          val n = List.length es
+          val default = List.tabulate (n, fn _ => Typ.Unknown)
+          val ts =
+            case t of
+              Typ.Prod (_, x) => if List.length x = n then x else default
+            | _ => default
+
+          val ets =
+            Util.zipWith (fn ee => fn tee => (ee, tee)) es ts
+
+          val (vars, es') = refineSubExps vars 1 ets
+
+          val t' = Typ.Prod (depth, List.map typOf es')
         in
           { vars = vars
-          , exp = Fst (Typ.unify (t, t'), ee')
+          , exp = Tuple (Typ.unify (t, t'), es')
               handle Overconstrained =>
-              raise Fail ("Lang3.refineTyp Fst: unexpected bug in final refine")
+              raise Fail ("Lang3.refineTyp Tuple: bug in final refinement")
           }
         end
 
-    | Snd (t, ee) =>
+    | Select (t, n, ee) =>
         let
-          val tee = Typ.Prod (depth, Typ.Unknown, t)
+          (* convert from 1-indexing *)
+          val i = n-1
+
+          val tee =
+            case typOf ee of
+              Typ.Prod (_, ts) =>
+                if i >= List.length ts then
+                  raise Fail ("Lang3.refineTyp Select: cannot select component "
+                  ^ "#" ^ Int.toString n ^ " on tuple of size "
+                  ^ Int.toString (List.length ts))
+                else
+                  Typ.Prod (depth,
+                    List.take (ts, i) @ (t :: List.drop (ts, i+1)))
+            | _ => Typ.Unknown
+
           val {vars, exp=ee'} =
             refineTyp
               { vars = vars
               , depth = depth
               , exp = refineRootTyp ee tee
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp Snd: expected tuple of type "
+                  raise Fail ("Lang3.refineTyp Select: expected tuple of type "
                   ^ Typ.toString tee ^ " but found "
                   ^ Typ.toString (typOf ee))
               }
 
           val t' =
             case typOf ee' of
-              Typ.Prod (_, _, t') => t'
-            | _ => raise Fail ("Lang3.refineTyp Snd: bug")
+              Typ.Prod (_, ts) =>
+                (List.nth (ts, i)
+                  handle Subscript =>
+                  raise Fail ("Lang3.refineTyp Select: bug: tuple size"))
+
+            | Typ.Unknown => Typ.Unknown
+
+            | _ => raise Fail ("Lang3.refineTyp Select: bug")
         in
           { vars = vars
-          , exp = Snd (Typ.unify (t, t'), ee')
+          , exp = Select (Typ.unify (t, t'), n, ee')
               handle Overconstrained =>
-              raise Fail ("Lang3.refineTyp Snd: unexpected bug in final refine")
+              raise Fail ("Lang3.refineTyp Select: unexpected bug in final refine")
           }
         end
 
@@ -1032,7 +1097,8 @@ struct
 
       fun loop vars exp =
         let
-          val _ = print ("REFINING " ^ toString exp ^ "\n")
+          val _ = print (IdTable.toString (fn t => " " ^ Typ.toString t ^ "\n") vars ^ "\n")
+          val _ = print (toString exp ^ "\n\n")
           val {vars=vars', exp=exp'} =
             refineTyp {vars=vars, depth=0, exp=exp}
         in

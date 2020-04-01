@@ -1,5 +1,6 @@
 Group is
   $/basis.cm
+  lib/Util.sml
   lib/Hash.sml
   lib/KEY.sig
   lib/TABLE.sig
@@ -9,6 +10,6 @@ Group is
   lib/AdjacencyGraph.sml
   Identifier.sml
   Lang0.sml
-  Lang1.sml
-  Lang2.sml
+  (* Lang1.sml *)
+  (* Lang2.sml *)
   Lang3.sml

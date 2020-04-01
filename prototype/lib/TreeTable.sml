@@ -209,7 +209,7 @@ struct
   fun toString f t =
     "{" ^
     String.concatWith ","
-      (List.map (fn (k, v) => Key.toString k ^ "->" ^ f v) (elements t))
+      (List.map (fn (k, v) => Key.toString k ^ ":" ^ f v) (elements t))
     ^ "}"
 
   fun check t =
