@@ -20,9 +20,7 @@ struct
     | Top
     | Bot
     | Num of d
-    | Ref of d * t
-    | GRef of d * t
-    | SRef of d * t
+    | Ref of d * t * t
     | Prod of d * t list
     | Arr of d * t * t
 
@@ -32,24 +30,13 @@ struct
       | Top => "any"
       | Bot => "void"
       | Num d => "num@" ^ Int.toString d
-      | Ref (d, t) => toString t ^ " ref@" ^ Int.toString d
-      | GRef (d, t) => toString t ^ " gref@" ^ Int.toString d
-      | SRef (d, t) => toString t ^ " sref@" ^ Int.toString d
+      | Ref (d, t1, t2) =>
+          parens (toString t1 ^ ", " ^ toString t2) ^ " ref@" ^ Int.toString d
       | Prod (d, ts) =>
           parens (String.concatWith " * " (List.map toString ts))
           ^ "@" ^ Int.toString d
       | Arr (d, t1, t2) =>
           parens (toString t1 ^ " -> " ^ toString t2) ^ "@" ^ Int.toString d
-
-    fun depthOf t =
-      case t of
-        Num d => d
-      | Ref (d, _) => d
-      | GRef (d, _) => d
-      | SRef (d, _) => d
-      | Prod (d, _) => d
-      | Arr (d, _, _) => d
-      | _ => raise Fail ("Lang3.Typ.depthOf: " ^ toString t)
 
     fun equal x y =
       case (x, y) of
@@ -57,9 +44,8 @@ struct
       | (Top, Top) => true
       | (Bot, Bot) => true
       | (Num d, Num d') => d = d'
-      | (Ref (d, t), Ref (d', t')) => d = d' andalso equal t t'
-      | (GRef (d, t), GRef (d', t')) => d = d' andalso equal t t'
-      | (SRef (d, t), SRef (d', t')) => d = d' andalso equal t t'
+      | (Ref (d, t1, t2), Ref (d', t1', t2')) =>
+          d = d' andalso equal t1 t1' andalso equal t2 t2'
       | (Prod (d, ts), Prod (d', ts')) =>
           d = d'
           andalso List.length ts = List.length ts'
@@ -71,9 +57,7 @@ struct
     fun hasBots ty =
       case ty of
         Bot => true
-      | Ref (d, t) => hasBots t
-      | GRef (d, t) => hasBots t
-      | SRef (d, t) => hasBots t
+      | Ref (d, t1, t2) => hasBots t1 orelse hasBots t2
       | Prod (d, ts) => List.exists hasBots ts
       | Arr (d, t1, t2) => hasBots t1 orelse hasBots t2
       | _ => false
@@ -81,9 +65,7 @@ struct
     fun hasUnknowns ty =
       case ty of
         Unknown => true
-      | Ref (d, t) => hasUnknowns t
-      | GRef (d, t) => hasUnknowns t
-      | SRef (d, t) => hasUnknowns t
+      | Ref (d, t1, t2) => hasUnknowns t1 orelse hasUnknowns t2
       | Prod (d, ts) => List.exists hasUnknowns ts
       | Arr (d, t1, t2) => hasUnknowns t1 orelse hasUnknowns t2
       | _ => false
@@ -91,9 +73,7 @@ struct
     fun hasTops ty =
       case ty of
         Top => true
-      | Ref (d, t) => hasTops t
-      | GRef (d, t) => hasTops t
-      | SRef (d, t) => hasTops t
+      | Ref (d, t1, t2) => hasTops t1 orelse hasTops t2
       | Prod (d, ts) => List.exists hasTops ts
       | Arr (d, t1, t2) => hasTops t1 orelse hasTops t2
       | _ => false
@@ -107,9 +87,7 @@ struct
       | Top => Top
       | Bot => Bot
       | Num d => Num (min d d')
-      | Ref (d, t) => Ref (min d d', capAt d' t)
-      | GRef (d, t) => GRef (min d d', capAt d' t)
-      | SRef (d, t) => SRef (min d d', capAt d' t)
+      | Ref (d, t1, t2) => Ref (min d d', capAt d' t1, capAt d' t2)
       | Prod (d, ts) => Prod (min d d', List.map (capAt d') ts)
       | Arr (d, t1, t2) => Arr (min d d', capAt d' t1, capAt d' t2)
 
@@ -118,72 +96,15 @@ struct
     fun omap2 f (SOME x, SOME y) = SOME (f (x, y))
       | omap2 _ _ = NONE
 
-    fun unifyHoles x y =
-      case (x, y) of
-        (Unknown, _) => SOME y
-      | (_, Unknown) => SOME x
-      | (Top, Top) => SOME Top
-      | (Bot, Bot) => SOME Bot
-      | (Num d, Num d') =>
-          if d <> d' then NONE
-          else SOME (Num d)
-      | (Ref (d, t), Ref (d', t')) =>
-          if d <> d' then NONE
-          else omap (fn tt => Ref (d, tt)) (unifyHoles t t')
-      | (GRef (d, t), GRef (d', t')) =>
-          if d <> d' then NONE
-          else omap (fn tt => GRef (d, tt)) (unifyHoles t t')
-      | (SRef (d, t), SRef (d', t')) =>
-          if d <> d' then NONE
-          else omap (fn tt => SRef (d, tt)) (unifyHoles t t')
-      | (Arr (d, t1, t2), Arr (d', t1', t2')) =>
-          if d <> d' then NONE
-          else omap2 (fn (tt1, tt2) => Arr (d, tt1, tt2))
-               (unifyHoles t1 t1', unifyHoles t2 t2')
-      | (Prod (d, ts), Prod (d', ts')) =>
-          if d <> d' then
-            NONE
-          else if List.length ts <> List.length ts' then
-            NONE
-          else
-            let
-              val unified =
-                List.mapPartial (fn x => x) (Util.zipWith unifyHoles ts ts')
-            in
-              if List.length unified = List.length ts then
-                SOME (Prod (d, unified))
-              else
-                NONE
-            end
-
-      | _ => NONE
-
-    fun leq x y = equal x (glb x y)
-
-    and glb x y =
+    fun glb x y =
       case (x, y) of
         (Unknown, _) => y
       | (_, Unknown) => x
 
       | (Num d, Num d') => Num (min d d')
 
-      | (Ref (d, t), Ref (d', t')) =>
-          (case unifyHoles t t' of
-             NONE => Bot
-           | SOME tt => Ref (min d d', tt))
-      | (Ref (d, t), GRef (d', t')) => Ref (min d d', glb t t')
-      | (Ref (d, t), SRef (d', t')) => Ref (min d d', lub t t')
-
-      | (GRef _, Ref _) => glb y x
-      | (GRef (d, t), GRef (d', t')) => GRef (min d d', glb t t')
-      | (GRef (d, t), SRef (d', t')) =>
-          (case unifyHoles t t' of
-             NONE => Bot
-           | SOME tt => Ref (min d d', tt))
-
-      | (SRef _, Ref _) => glb y x
-      | (SRef _, GRef _) => glb y x
-      | (SRef (d, t), SRef (d', t')) => SRef (min d d', lub t t')
+      | (Ref (d, t1, t2), Ref (d', t1', t2')) =>
+          Ref (min d d', lub t1 t1', glb t2 t2')
 
       | (Arr (d, t1, t2), Arr (d', t1', t2')) =>
           Arr (min d d', lub t1 t1', glb t2 t2')
@@ -207,24 +128,8 @@ struct
 
       | (Num d, Num d') => Num (max d d')
 
-      | (Ref (d, t), Ref (d', t')) =>
-          (case unifyHoles t t' of
-             SOME tt => Ref (max d d', tt)
-           | NONE =>
-              if leq t t' then
-                GRef (max d d', t')
-              else if leq t' t then
-                SRef (max d d', t)
-              else
-                Top)
-      | (Ref (d, t), GRef (d', t')) => GRef (max d d', lub t t')
-      | (Ref (d, t), SRef (d', t')) => SRef (max d d', glb t t')
-
-      | (GRef _, Ref _) => lub y x
-      | (GRef (d, t), GRef (d', t')) => GRef (max d d', lub t t')
-
-      | (SRef _, Ref _) => lub y x
-      | (SRef (d, t), SRef (d', t')) => SRef (max d d', glb t t')
+      | (Ref (d, t1, t2), Ref (d', t1', t2')) =>
+          Ref (max d d', glb t1 t1', lub t2 t2')
 
       | (Arr (d, t1, t2), Arr (d', t1', t2')) =>
           Arr (max d d', glb t1 t1', lub t2 t2')
@@ -778,7 +683,7 @@ struct
         let
           val tee =
             case t of
-              Typ.Ref (_, t') => t'
+              Typ.Ref (_, tee, _) => tee
             | _ => Typ.Unknown
 
           val {vars, exp=ee'} =
@@ -792,7 +697,7 @@ struct
                   ^ Typ.toString (typOf ee))
               }
 
-          val t' = Typ.Ref (depth, typOf ee')
+          val t' = Typ.Ref (depth, typOf ee', typOf ee')
         in
           { vars = vars
           , exp = Ref (Typ.unify (t, t'), ee')
@@ -803,7 +708,7 @@ struct
 
     | Bang (t, ee) =>
         let
-          val tee = Typ.GRef (depth, t)
+          val tee = Typ.Ref (depth, Typ.Unknown, t)
 
           val {vars, exp=ee'} =
             refineTyp
@@ -818,8 +723,7 @@ struct
 
           val t' =
             case typOf ee' of
-              Typ.Ref (_, t') => t'
-            | Typ.GRef (_, t') => t'
+              Typ.Ref (_, _, t') => t'
             | _ => raise Fail ("Lang3.refineTyp Bang: bug")
         in
           { vars = vars
@@ -831,7 +735,7 @@ struct
 
     | Upd (t, e1, e2) =>
         let
-          val t1 = Typ.SRef (depth, t)
+          val t1 = Typ.Ref (depth, t, Typ.Unknown)
 
           val {vars, exp=e1'} =
             refineTyp
@@ -848,12 +752,8 @@ struct
 
           val t2 =
             case typOf e1' of
-              Typ.SRef (_, x) => x
-            | Typ.Ref (_, x) => x
-            | _ => raise Fail ("Lang3.refineTyp Upd: bug: "
-                   ^ "found expression `" ^ toString e1' ^ "`"
-                   ^ " of type " ^ Typ.toString (typOf e1')
-                   ^ " but expected either sref or ref")
+              Typ.Ref (_, t2, _) => t2
+            | _ => raise Fail ("Lang3.refineTyp Upd: bug")
 
           val {vars, exp=e2'} =
             refineTyp
