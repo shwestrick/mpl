@@ -11,8 +11,6 @@
  *)
 
 local
-
-
   ../../lib/mlton/sources.mlb
   ../../lib/mlyacc-lib/mlyacc-lib.mlb
   ../../mlton/ast/sources.mlb
@@ -35,5 +33,9 @@ local
 
   LexParse.sml
 in
-  functor LexParse
+  structure LexParse
 end
+
+$(SML_LIB)/basis/basis.mlb
+$(SML_LIB)/basis/mlton.mlb
+main.sml

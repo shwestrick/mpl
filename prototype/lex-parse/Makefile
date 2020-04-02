@@ -3,7 +3,7 @@ MLLEX=mllex
 MLYACC=mlyacc
 SED=sed
 
-all: proto.lex.sml proto.grm.sml sources
+all: proto.lex.sml proto.grm.sml main
 
 %.lex.sml: %.lex
 	rm -f $<.*
@@ -25,9 +25,9 @@ all: proto.lex.sml proto.grm.sml sources
 	rm -f $<.sml.in
 	chmod -w $<.*
 
-sources: proto.lex.sml proto.grm.sml LexParse.sml sources.mlb
-	$(MLTON) sources.mlb
+main: proto.lex.sml proto.grm.sml LexParse.sml sources.mlb
+	$(MLTON) -output main sources.mlb
 
 .PHONY: clean
 clean:
-	rm -f *.grm.desc *.grm.sig *.grm.sml *.lex.sml sources
+	rm -f *.grm.desc *.grm.sig *.grm.sml *.lex.sml main

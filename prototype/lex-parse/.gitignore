@@ -2,4 +2,4 @@
 *.grm.sig
 *.grm.sml
 *.grm.desc
-sources
+main

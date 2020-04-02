@@ -10,15 +10,18 @@
  * See the file MLton-LICENSE for details.
  *)
 
-functor LexParse (Ast: AST):
+functor MkLexParse (Ast: AST):
 sig
+  structure Ast: AST
   val lexAndParseFile: File.t -> Ast.Program.t
 end =
 struct
 
+structure Ast = Ast
+
 structure LrVals = MLLrValsFun (structure Token = LrParser.Token
                                 structure Ast = Ast)
-structure Lex = MLLexFun (structure Tokens = LrVals.Tokens)
+structure Lex = ProtoLexFun (structure Tokens = LrVals.Tokens)
 structure Parse = JoinWithArg (structure ParserData = LrVals.ParserData
                                structure Lex = Lex
                                structure LrParser = LrParser)
@@ -46,6 +49,8 @@ fun lexAndParse (source: Source.t, ins: In.t): Ast.Program.t =
             end
       val () = Ast.Program.checkSyntax result
 
+      val _ = Control.keepAST := true
+
       (* Outputs AST to a file if Control.keepAST is true *)
       val () =
          if !Control.keepAST
@@ -60,12 +65,28 @@ fun lexAndParse (source: Source.t, ins: In.t): Ast.Program.t =
       result
    end
 
+fun wrapSetRef (r, x) func =
+  let
+    val orig = !r
+    val _ = r := x
+    val result = func ()
+    val _ = r := orig
+  in
+    result
+  end
+
 fun lexAndParseFile (f: File.t) =
-   File.withIn
-   (f, fn ins => lexAndParse (Source.new f, ins))
+  wrapSetRef (Control.inputFile, f) (fn _ =>
+    File.withIn
+    (f, fn ins => lexAndParse (Source.new f, ins))
+  )
 
 val lexAndParseFile =
     Trace.trace ("FrontEnd.lexAndParseFile", File.layout, Ast.Program.layout)
     lexAndParseFile
 
 end
+
+structure Atoms = Atoms ()
+structure Ast = Ast (open Atoms)
+structure LexParse = MkLexParse (Ast)
