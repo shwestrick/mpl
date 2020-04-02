@@ -9,12 +9,22 @@ struct
 
   type loc = Id.t
 
+  val bogusLoc = Id.new "bogus"
+
   datatype exp =
     Var of var
   | Loc of loc (* "internal"; not visible to other langs *)
+
   | Ref of exp
   | Upd of exp * exp
   | Bang of exp
+
+  | Array of exp list
+  | Alloc of exp
+  | AUpd of exp * exp * exp
+  | ASub of exp * exp
+  | Length of exp
+
   | Seq of exp * exp
   | App of exp * exp
   | Par of exp list   (* arbitrarily wide tuples *)
@@ -41,6 +51,15 @@ struct
     | Ref e' => "ref " ^ toStringP e'
     | Bang e' => "!" ^ toStringP e'
     | Upd (e1, e2) => toStringP e1 ^ " := " ^ toStringP e2
+
+    | Array es => "[" ^ String.concatWith "," (List.map toStringP es) ^ "]"
+    | Alloc e' => "alloc " ^ toStringP e'
+    | AUpd (e1, e2, e3) =>
+        toStringP e1 ^ "[" ^ toString e2 ^ "] := " ^ toString e3
+    | ASub (e1, e2) =>
+        toStringP e1 ^ "[" ^ toString e2 ^ "]"
+    | Length e' => "length " ^ toStringP e'
+
     | App (e1, e2) =>
         toStringP e1 ^ " " ^ toStringP e2
     | Seq (e1, e2) =>
@@ -65,6 +84,10 @@ struct
         case e of
           App _ => true
         | Op _ => true
+        | Alloc _ => true
+        | AUpd _ => true
+        | ASub _ => true
+        | Length _ => true
         | IfZero _ => true
         | Select _ => true
         | Let _ => true
@@ -82,6 +105,7 @@ struct
   fun deLoc e = case e of Loc l => l | _ => raise Fail "deLoc"
   fun deTuple e = case e of Tuple x => x | _ => raise Fail "deTuple"
   fun deRef e = case e of Ref x => x | _ => raise Fail "deRef"
+  fun deArray e = case e of Array x => x | _ => raise Fail "deArray"
 
   (* substitute [e'/x]e *)
   fun subst (e', x) e =
@@ -96,6 +120,13 @@ struct
       | Ref e' => Ref (doit e')
       | Upd (e1, e2) => Upd (doit e1, doit e2)
       | Bang e' => Bang (doit e')
+
+      | Array es => Array (List.map doit es)
+      | Alloc e' => Alloc (doit e')
+      | AUpd (e1, e2, e3) => AUpd (doit e1, doit e2, doit e3)
+      | ASub (e1, e2) => ASub (doit e1, doit e2)
+      | Length e' => Length (doit e')
+
       | App (e1, e2) => App (doit e1, doit e2)
       | Par es => Par (List.map doit es)
       | Seq (e1, e2) => Seq (doit e1, doit e2)
@@ -132,6 +163,11 @@ struct
     | Bang x   => SOME (stepBang m x)
     | Upd x    => SOME (stepUpd m x)
     | Seq x    => SOME (stepSeq m x)
+    | Array x  => SOME (stepArray m x)
+    | Alloc x  => SOME (stepAlloc m x)
+    | AUpd x   => SOME (stepAUpd m x)
+    | ASub x   => SOME (stepASub m x)
+    | Length x => SOME (stepLength m x)
 
   and stepApp m (e1, e2) =
     case step (m, e1) of
@@ -159,6 +195,77 @@ struct
           val l = Id.loc ()
         in
           (IdTable.insert (l, Tuple es) m, Loc l)
+        end
+
+  and stepArray m es =
+    case stepFirstThatCan m es of
+      SOME (m', es') => (m', Array es')
+    | NONE =>
+        let
+          val l = Id.loc ()
+        in
+          (IdTable.insert (l, Array es) m, Loc l)
+        end
+
+  and stepAlloc m e =
+    case step (m, e) of
+      SOME (m', e') => (m', Alloc e')
+    | NONE =>
+        let
+          val n = deNum e
+
+          (* cheat by initializing with a bunch of bogus pointers *)
+          val es = List.tabulate (n, fn _ => Loc bogusLoc)
+          val l = Id.loc ()
+        in
+          (IdTable.insert (l, Array es) m, Loc l)
+        end
+
+  and stepAUpd m (e1, e2, e3) =
+    case step (m, e1) of
+      SOME (m', e1') => (m', AUpd (e1', e2, e3))
+    | NONE =>
+        case step (m, e2) of
+          SOME (m', e2') => (m', AUpd (e1, e2', e3))
+        | NONE =>
+            case step (m, e3) of
+                SOME (m', e3') => (m', AUpd (e1, e2, e3'))
+              | NONE =>
+                  let
+                    val l = deLoc e1
+                    val es = deArray (getLoc l m)
+                    val idx = deNum e2
+
+                    (* jump to idx and replace with e3 *)
+                    val es' =
+                      List.take (es, idx) @ (e3 :: List.drop (es, idx+1))
+                  in
+                    (IdTable.insert (l, Array es') m, e3)
+                  end
+
+  and stepASub m (e1, e2) =
+    case step (m, e1) of
+      SOME (m', e1') => (m', ASub (e1', e2))
+    | NONE =>
+        case step (m, e2) of
+          SOME (m', e2') => (m', ASub (e1, e2'))
+        | NONE =>
+            let
+              val l = deLoc e1
+              val es = deArray (getLoc l m)
+              val idx = deNum e2
+            in
+              (m, List.nth (es, idx))
+            end
+
+  and stepLength m e =
+    case step (m, e) of
+      SOME (m', e') => (m', Length e')
+    | NONE =>
+        let
+          val es = deArray (getLoc (deLoc e) m)
+        in
+          (m, Num (List.length es))
         end
 
   (* Walk through es, trying to step each expression, from left to right.
@@ -386,6 +493,33 @@ struct
             OpAdd (Select (1, Var c), Select (2, Var c))))))))
     in
       Func (sum, range, body)
+    end
+
+  val sumArray: exp =
+    let
+      val sumRange = Id.new "sumRange"
+      val range = Id.new "range"
+      val i = Id.new "i"
+      val j = Id.new "j"
+      val a = Id.new "a"
+      val mid = Id.new "mid"
+      val c = Id.new "c"
+
+      val body =
+        Let (i, Select (1, Var range),
+        Let (j, Select (2, Var range),
+          IfZero (OpSub (Var j, Var i), Num 0,
+          IfZero (OpSub (Var j, OpAdd (Var i, Num 1)), ASub (Var a, Var i),
+          Let (mid, OpAdd (Var i, OpDiv (OpSub (Var j, Var i), Num 2)),
+          Let (c, Par [App (Var sumRange, Tuple [Var i, Var mid]),
+                       App (Var sumRange, Tuple [Var mid, Var j])],
+            OpAdd (Select (1, Var c), Select (2, Var c))))))))
+
+      val sumArray = Id.new "sumArray"
+    in
+      Func (sumArray, a,
+        App (Func (sumRange, range, body),
+             Tuple [Num 0, Length (Var a)]))
     end
 
 end
