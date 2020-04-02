@@ -19,8 +19,9 @@ struct
       Unknown
     | Num of d
     | Ref of d * t * t
+    | Array of d * t * t
     | Prod of d * t list
-    | Arr of d * t * t
+    | Func of d * t * t
 
     fun toString t =
       case t of
@@ -28,10 +29,12 @@ struct
       | Num d => "num@" ^ Int.toString d
       | Ref (d, t1, t2) =>
           parens (toString t1 ^ ", " ^ toString t2) ^ " ref@" ^ Int.toString d
+      | Array (d, t1, t2) =>
+          parens (toString t1 ^ ", " ^ toString t2) ^ " array@" ^ Int.toString d
       | Prod (d, ts) =>
           parens (String.concatWith " * " (List.map toString ts))
           ^ "@" ^ Int.toString d
-      | Arr (d, t1, t2) =>
+      | Func (d, t1, t2) =>
           parens (toString t1 ^ " -> " ^ toString t2) ^ "@" ^ Int.toString d
 
     fun equal x y =
@@ -40,11 +43,13 @@ struct
       | (Num d, Num d') => d = d'
       | (Ref (d, t1, t2), Ref (d', t1', t2')) =>
           d = d' andalso equal t1 t1' andalso equal t2 t2'
+      | (Array (d, t1, t2), Array (d', t1', t2')) =>
+          d = d' andalso equal t1 t1' andalso equal t2 t2'
       | (Prod (d, ts), Prod (d', ts')) =>
           d = d'
           andalso List.length ts = List.length ts'
           andalso Util.allTrue (Util.zipWith equal ts ts')
-      | (Arr (d, t1, t2), Arr (d', t1', t2')) =>
+      | (Func (d, t1, t2), Func (d', t1', t2')) =>
           d = d' andalso equal t1 t1' andalso equal t2 t2'
       | _ => false
 
@@ -52,8 +57,9 @@ struct
       case ty of
         Unknown => true
       | Ref (d, t1, t2) => hasUnknowns t1 orelse hasUnknowns t2
+      | Array (d, t1, t2) => hasUnknowns t1 orelse hasUnknowns t2
       | Prod (d, ts) => List.exists hasUnknowns ts
-      | Arr (d, t1, t2) => hasUnknowns t1 orelse hasUnknowns t2
+      | Func (d, t1, t2) => hasUnknowns t1 orelse hasUnknowns t2
       | _ => false
 
     fun min d d' = Int.min (d, d')
@@ -64,8 +70,9 @@ struct
         Unknown => Unknown
       | Num d => Num (min d d')
       | Ref (d, t1, t2) => Ref (min d d', capAt d' t1, capAt d' t2)
+      | Array (d, t1, t2) => Array (min d d', capAt d' t1, capAt d' t2)
       | Prod (d, ts) => Prod (min d d', List.map (capAt d') ts)
-      | Arr (d, t1, t2) => Arr (min d d', capAt d' t1, capAt d' t2)
+      | Func (d, t1, t2) => Func (min d d', capAt d' t1, capAt d' t2)
 
     exception Overconstrained
 
@@ -76,8 +83,10 @@ struct
       | (Num d, Num d') => Num (min d d')
       | (Ref (d, t1, t2), Ref (d', t1', t2')) =>
           Ref (min d d', lub t1 t1', glb t2 t2')
-      | (Arr (d, t1, t2), Arr (d', t1', t2')) =>
-          Arr (min d d', lub t1 t1', glb t2 t2')
+      | (Array (d, t1, t2), Array (d', t1', t2')) =>
+          Array (min d d', lub t1 t1', glb t2 t2')
+      | (Func (d, t1, t2), Func (d', t1', t2')) =>
+          Func (min d d', lub t1 t1', glb t2 t2')
       | (Prod (d, ts), Prod (d', ts')) =>
           if List.length ts = List.length ts' then
             Prod (min d d', Util.zipWith glb ts ts')
@@ -92,8 +101,10 @@ struct
       | (Num d, Num d') => Num (max d d')
       | (Ref (d, t1, t2), Ref (d', t1', t2')) =>
           Ref (max d d', glb t1 t1', lub t2 t2')
-      | (Arr (d, t1, t2), Arr (d', t1', t2')) =>
-          Arr (max d d', glb t1 t1', lub t2 t2')
+      | (Array (d, t1, t2), Array (d', t1', t2')) =>
+          Array (max d d', glb t1 t1', lub t2 t2')
+      | (Func (d, t1, t2), Func (d', t1', t2')) =>
+          Func (max d d', glb t1 t1', lub t2 t2')
       | (Prod (d, ts), Prod (d', ts')) =>
           if List.length ts = List.length ts' then
             Prod (max d d', Util.zipWith lub ts ts')
@@ -113,6 +124,11 @@ struct
   | Ref of typ * exp
   | Upd of typ * exp * exp
   | Bang of typ * exp
+  | Array of typ * exp list
+  | Alloc of typ * exp
+  | AUpd of typ * exp * exp * exp
+  | ASub of typ * exp * exp
+  | Length of typ * exp
   | Seq of typ * exp * exp
   | App of typ * exp * exp
   | Par of typ * exp list
@@ -130,6 +146,11 @@ struct
     | Ref (t, _) => t
     | Bang (t, _) => t
     | Upd (t, _, _) => t
+    | Array (t, _) => t
+    | Alloc (t, _) => t
+    | AUpd (t, _, _, _) => t
+    | ASub (t, _, _) => t
+    | Length (t, _) => t
     | Seq (t, _, _) => t
     | App (t, _, _) => t
     | Par (t, _) => t
@@ -147,6 +168,13 @@ struct
     | Ref (_, e') => "ref " ^ toStringP e'
     | Bang (_, e') => "!" ^ toStringP e'
     | Upd (_, e1, e2) => toStringP e1 ^ " := " ^ toStringP e2
+    | Array (_, es) => "[" ^ String.concatWith ", " (List.map toStringP es) ^ "]"
+    | Alloc (_, e') => "alloc " ^ toStringP e'
+    | AUpd (_, e1, e2, e3) =>
+        toStringP e1 ^ "[" ^ toString e2 ^ "] := " ^ toString e3
+    | ASub (_, e1, e2) =>
+        toStringP e1 ^ "[" ^ toString e2 ^ "]"
+    | Length (_, e') => "length " ^ toStringP e'
     | App (_, e1, e2) =>
         toStringP e1 ^ " " ^ toStringP e2
     | Seq (_, e1, e2) =>
@@ -154,7 +182,7 @@ struct
     | Par (_, es) =>
         "(" ^ String.concatWith " || " (List.map toString es) ^ ")"
     | Tuple (_, es) =>
-        "(" ^ String.concatWith "," (List.map toString es) ^ ")"
+        "(" ^ String.concatWith ", " (List.map toString es) ^ ")"
     | Select (_, n, e') => "#" ^ Int.toString n ^ " " ^ toStringP e'
     | Let (_, v, e1, e2) =>
         let
@@ -186,6 +214,10 @@ struct
         | Upd _ => true
         | Bang _ => true
         | Seq _ => true
+        | Alloc _ => true
+        | AUpd _ => true
+        | ASub _ => true
+        | Length _ => true
         | _ => false
     in
       if needsP then parens (toString e) else toString e
@@ -203,6 +235,11 @@ struct
     | Lang0.Upd (e1, e2) => Upd (uu, from0 e1, from0 e2)
     | Lang0.Seq (e1, e2) => Seq (uu, from0 e1, from0 e2)
     | Lang0.App (e1, e2) => App (uu, from0 e1, from0 e2)
+    | Lang0.Array es => Array (uu, List.map from0 es)
+    | Lang0.Alloc e => Alloc (uu, from0 e)
+    | Lang0.AUpd (e1, e2, e3) => AUpd (uu, from0 e1, from0 e2, from0 e3)
+    | Lang0.ASub (e1, e2) => ASub (uu, from0 e1, from0 e2)
+    | Lang0.Length e => Length (uu, from0 e)
     | Lang0.Par es => Par (uu, List.map from0 es)
     | Lang0.Tuple es => Tuple (uu, List.map from0 es)
     | Lang0.Select (n, e') => Select (uu, n, from0 e')
@@ -229,6 +266,16 @@ struct
         fold p (fold p (c (typ t, b)) e1) e2
     | Bang (t, e') =>
         fold p (c (typ t, b)) e'
+    | Array (t, es) =>
+        List.foldl (fn (ee, bb) => fold p bb ee) (c (typ t, b)) es
+    | Alloc (t, e') =>
+        fold p (c (typ t, b)) e'
+    | Length (t, e') =>
+        fold p (c (typ t, b)) e'
+    | AUpd (t, e1, e2, e3) =>
+        fold p (fold p (fold p (c (typ t, b)) e1) e2) e3
+    | ASub (t, e1, e2) =>
+        fold p (fold p (c (typ t, b)) e1) e2
     | Seq (t, e1, e2) =>
         fold p (fold p (c (typ t, b)) e1) e2
     | App (t, e1, e2) =>
@@ -274,6 +321,25 @@ struct
         Typ.equal t1 t2 andalso
         equal x1 x2 andalso
         equal y1 y2
+    | (Array (t1, es1), Array (t2, es2)) =>
+        Typ.equal t1 t2 andalso
+        List.length es1 = List.length es2 andalso
+        Util.allTrue (Util.zipWith equal es1 es2)
+    | (Alloc (t1, x1), Alloc (t2, x2)) =>
+        Typ.equal t1 t2 andalso
+        equal x1 x2
+    | (Length (t1, x1), Length (t2, x2)) =>
+        Typ.equal t1 t2 andalso
+        equal x1 x2
+    | (ASub (t1, x1, y1), ASub (t2, x2, y2)) =>
+        Typ.equal t1 t2 andalso
+        equal x1 x2 andalso
+        equal y1 y2
+    | (AUpd (t1, a1, b1, c1), AUpd (t2, a2, b2, c2)) =>
+        Typ.equal t1 t2 andalso
+        equal a1 a2 andalso
+        equal b1 b2 andalso
+        equal c1 c2
     | (Seq (t1, x1, y1), Seq (t2, x2, y2)) =>
         Typ.equal t1 t2 andalso
         equal x1 x2 andalso
@@ -335,6 +401,16 @@ struct
         checkScoping vars ctx e
     | Upd (_, e1, e2) =>
         checkScoping (checkScoping vars ctx e1) ctx e2
+    | Alloc (_, e) =>
+        checkScoping vars ctx e
+    | Array (_, es) =>
+        List.foldl (fn (e, vars) => checkScoping vars ctx e) vars es
+    | Length (_, e) =>
+        checkScoping vars ctx e
+    | ASub (_, e1, e2) =>
+        checkScoping (checkScoping vars ctx e1) ctx e2
+    | AUpd (_, e1, e2, e3) =>
+        checkScoping (checkScoping (checkScoping vars ctx e1) ctx e2) ctx e3
     | Seq (_, e1, e2) =>
         checkScoping (checkScoping vars ctx e1) ctx e2
     | App (_, e1, e2) =>
@@ -382,21 +458,32 @@ struct
    *)
 
   fun refineRootTyp exp t' =
-    case exp of
-      Var (t, v) => Var (Typ.glb t t', v)
-    | Num (t, n) => Num (Typ.glb t t', n)
-    | Ref (t, e) => Ref (Typ.glb t t', e)
-    | Bang (t, e) => Bang (Typ.glb t t', e)
-    | Upd (t, e1, e2) => Upd (Typ.glb t t', e1, e2)
-    | Seq (t, e1, e2) => Seq (Typ.glb t t', e1, e2)
-    | App (t, e1, e2) => App (Typ.glb t t', e1, e2)
-    | Par (t, es) => Par (Typ.glb t t', es)
-    | Tuple (t, es) => Tuple (Typ.glb t t', es)
-    | Select (t, n, e') => Select (Typ.glb t t', n, e')
-    | Let (t, v, e1, e2) => Let (Typ.glb t t', v, e1, e2)
-    | Func (t, func, arg, body) => Func (Typ.glb t t', func, arg, body)
-    | Op (t, name, f, e1, e2) => Op (Typ.glb t t', name, f, e1, e2)
-    | IfZero (t, e1, e2, e3) => IfZero (Typ.glb t t', e1, e2, e3)
+    let
+      fun doit t = Typ.unify (t, t')
+    in
+      case exp of
+        Var (t, v) => Var (doit t, v)
+      | Num (t, n) => Num (doit t, n)
+      | Ref (t, e) => Ref (doit t, e)
+      | Bang (t, e) => Bang (doit t, e)
+      | Upd (t, e1, e2) => Upd (doit t, e1, e2)
+
+      | Array (t, es) => Array (doit t, es)
+      | Alloc (t, e) => Alloc (doit t, e)
+      | Length (t, e) => Length (doit t, e)
+      | ASub (t, e1, e2) => ASub (doit t, e1, e2)
+      | AUpd (t, e1, e2, e3) => AUpd (doit t, e1, e2, e3)
+
+      | Seq (t, e1, e2) => Seq (doit t, e1, e2)
+      | App (t, e1, e2) => App (doit t, e1, e2)
+      | Par (t, es) => Par (doit t, es)
+      | Tuple (t, es) => Tuple (doit t, es)
+      | Select (t, n, e') => Select (doit t, n, e')
+      | Let (t, v, e1, e2) => Let (doit t, v, e1, e2)
+      | Func (t, func, arg, body) => Func (doit t, func, arg, body)
+      | Op (t, name, f, e1, e2) => Op (doit t, name, f, e1, e2)
+      | IfZero (t, e1, e2, e3) => IfZero (doit t, e1, e2, e3)
+    end
 
   exception Overconstrained = Typ.Overconstrained
 
@@ -438,7 +525,7 @@ struct
 
     | App (t, e1, e2) =>
         let
-          val t1 = Typ.Arr (depth, typOf e2, t)
+          val t1 = Typ.Func (depth, typOf e2, t)
           val {vars, exp=e1'} =
             refineTyp
               { vars = vars
@@ -451,7 +538,7 @@ struct
 
           val (t2, t') =
             case typOf e1' of
-              Typ.Arr (_, t2, t') => (t2, t')
+              Typ.Func (_, t2, t') => (t2, t')
             | _ => raise Fail ("Lang3.refineTyp App: bug in refinement of e1")
 
           val {vars, exp=e2'} =
@@ -707,6 +794,200 @@ struct
           }
         end
 
+    | Alloc (t, ee) =>
+        let
+          val tee = Typ.Num depth
+
+          val {vars, exp=ee'} =
+            refineTyp
+              { vars = vars
+              , depth = depth
+              , exp = refineRootTyp ee tee
+                  handle Overconstrained =>
+                  raise Fail ("Lang3.refineTyp Alloc: "
+                  ^ " expected type "
+                  ^ Typ.toString tee ^ " but found "
+                  ^ Typ.toString (typOf ee))
+              }
+
+          val t' =
+            Typ.Array (depth, Typ.Unknown, Typ.Unknown)
+        in
+          { vars = vars
+          , exp = Alloc (Typ.unify (t, t'), ee')
+              handle Overconstrained =>
+              raise Fail ("Lang3.refineTyp Alloc: bug")
+          }
+        end
+
+    | Length (t, ee) =>
+        let
+          val tee = Typ.Array (depth, Typ.Unknown, Typ.Unknown)
+
+          val {vars, exp=ee'} =
+            refineTyp
+              { vars = vars
+              , depth = depth
+              , exp = refineRootTyp ee tee
+                  handle Overconstrained =>
+                  raise Fail ("Lang3.refineTyp Length: "
+                  ^ " expected type "
+                  ^ Typ.toString tee ^ " but found "
+                  ^ Typ.toString (typOf ee))
+              }
+
+          val t' = Typ.Num depth
+        in
+          { vars = vars
+          , exp = Length (Typ.unify (t, t'), ee')
+              handle Overconstrained =>
+              raise Fail ("Lang3.refineTyp Length: bug")
+          }
+        end
+
+    | ASub (t, e1, e2) =>
+        let
+          val t1 = Typ.Array (depth, Typ.Unknown, t)
+
+          val {vars, exp=e1'} =
+            refineTyp
+              { vars = vars
+              , depth = depth
+              , exp = refineRootTyp e1 t1
+                  handle Overconstrained =>
+                  raise Fail ("Lang3.refineTyp ASub: "
+                  ^ " expected type "
+                  ^ Typ.toString t1 ^ " but found "
+                  ^ Typ.toString (typOf e1))
+              }
+
+          val t' =
+            case typOf e1' of
+              Typ.Array (_, _, t') => t'
+            | _ => raise Fail ("Lang3.refineTyp ASub: bug")
+
+          val t2 = Typ.Num depth
+
+          val {vars, exp=e2'} =
+            refineTyp
+              { vars = vars
+              , depth = depth
+              , exp = refineRootTyp e2 t2
+                  handle Overconstrained =>
+                  raise Fail ("Lang3.refineTyp ASub: "
+                  ^ " expected type "
+                  ^ Typ.toString t2 ^ " but found "
+                  ^ Typ.toString (typOf e2))
+              }
+        in
+          { vars = vars
+          , exp = ASub (Typ.unify (t, t'), e1', e2')
+              handle Overconstrained =>
+              raise Fail ("Lang3.refineType ASub: bug in final refine")
+          }
+        end
+
+    | AUpd (t, e1, e2, e3) =>
+        let
+          val t1 = Typ.Array (depth, t, Typ.Unknown)
+
+          val {vars, exp=e1'} =
+            refineTyp
+              { vars = vars
+              , depth = depth
+              , exp = refineRootTyp e1 t1
+                  handle Overconstrained =>
+                  raise Fail ("Lang3.refineTyp AUpd: "
+                  ^ " expected type "
+                  ^ Typ.toString t1 ^ " but found "
+                  ^ Typ.toString (typOf e1))
+              }
+
+          val t' =
+            case typOf e1' of
+              Typ.Array (_, t', _) => t'
+            | _ => raise Fail ("Lang3.refineTyp AUpd: bug")
+
+          val t2 = Typ.Num depth
+
+          val {vars, exp=e2'} =
+            refineTyp
+              { vars = vars
+              , depth = depth
+              , exp = refineRootTyp e2 t2
+                  handle Overconstrained =>
+                  raise Fail ("Lang3.refineTyp AUpd: "
+                  ^ " expected type "
+                  ^ Typ.toString t2 ^ " but found "
+                  ^ Typ.toString (typOf e2))
+              }
+
+          val t3 = t'
+
+          val {vars, exp=e3'} =
+            refineTyp
+              { vars = vars
+              , depth = depth
+              , exp = refineRootTyp e3 t3
+                  handle Overconstrained =>
+                  raise Fail ("Lang3.refineTyp AUpd: "
+                  ^ " expected type "
+                  ^ Typ.toString t3 ^ " but found "
+                  ^ Typ.toString (typOf e3))
+              }
+
+          val t' = typOf e3'
+        in
+          { vars = vars
+          , exp = AUpd (Typ.unify (t, t'), e1', e2', e3')
+              handle Overconstrained =>
+              raise Fail ("Lang3.refineType AUpd: bug in final refine")
+          }
+        end
+
+    | Array (t, es) =>
+        let
+          fun refineSubExps vars idx tee ees =
+            case ees of
+              [] => (vars, tee, [])
+            | (ee :: rest) =>
+                let
+                  val {vars, exp=ee'} =
+                    refineTyp
+                      { vars = vars
+                      , depth = depth
+                      , exp = refineRootTyp ee tee
+                          handle Overconstrained =>
+                          raise Fail ("Lang3.refineTyp Array: "
+                          ^ "expected idx " ^ Int.toString idx
+                          ^ " to have type "
+                          ^ Typ.toString tee
+                          ^ " but found "
+                          ^ Typ.toString (typOf ee))
+                      }
+                  val tee = typOf ee
+                  val (vars, tee, rest') = refineSubExps vars (idx+1) tee rest
+                in
+                  (vars, tee, ee' :: rest')
+                end
+
+          val tee =
+            case t of
+              Typ.Array (_, x, _) => x
+            | Typ.Unknown => Typ.Unknown
+            | _ => raise Fail ("Lang3.refineTyp Array: bug")
+
+          val (vars, tee', es') = refineSubExps vars 0 tee es
+
+          val t' = Typ.Array (depth, tee', tee')
+        in
+          { vars = vars
+          , exp = Array (Typ.unify (t, t'), es')
+              handle Overconstrained =>
+              raise Fail ("Lang3.refineTyp Array: bug in final refinement")
+          }
+        end
+
     | Seq (t, e1, e2) =>
         let
           val {vars, exp=e1'} =
@@ -783,10 +1064,10 @@ struct
         let
           val (t1, t2) =
             case t of
-              Typ.Arr (_, t1, t2) => (t1, t2)
+              Typ.Func (_, t1, t2) => (t1, t2)
             | _ => (Typ.Unknown, Typ.Unknown)
 
-          val t' = Typ.Arr (depth, t1, t2)
+          val t' = Typ.Func (depth, t1, t2)
 
           fun updateFuncTyp (tOld, tNew) =
             Typ.unify (tOld, tNew)
@@ -800,10 +1081,10 @@ struct
 
           val (t1, t2) =
             case valOf (IdTable.lookup func vars) of
-              Typ.Arr (_, t1, t2) => (t1, t2)
+              Typ.Func (_, t1, t2) => (t1, t2)
             | _ => (Typ.Unknown, Typ.Unknown)
 
-          val t' = Typ.Arr (depth, t1, t2)
+          val t' = Typ.Func (depth, t1, t2)
 
           fun updateArgTyp (t1Old, t1New) =
             Typ.unify (t1Old, t1New)
@@ -830,7 +1111,7 @@ struct
 
           val t2 = typOf body'
 
-          val t' = Typ.Arr (depth, t1, t2)
+          val t' = Typ.Func (depth, t1, t2)
         in
           { vars = vars
           , exp = Func (Typ.unify (t, t'), func, arg, body')

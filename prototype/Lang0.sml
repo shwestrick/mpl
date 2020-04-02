@@ -52,7 +52,7 @@ struct
     | Bang e' => "!" ^ toStringP e'
     | Upd (e1, e2) => toStringP e1 ^ " := " ^ toStringP e2
 
-    | Array es => "[" ^ String.concatWith "," (List.map toStringP es) ^ "]"
+    | Array es => "[" ^ String.concatWith ", " (List.map toStringP es) ^ "]"
     | Alloc e' => "alloc " ^ toStringP e'
     | AUpd (e1, e2, e3) =>
         toStringP e1 ^ "[" ^ toString e2 ^ "] := " ^ toString e3
@@ -67,7 +67,7 @@ struct
     | Par es =>
         "(" ^ String.concatWith " || " (List.map toString es) ^ ")"
     | Tuple es =>
-        "(" ^ String.concatWith "," (List.map toString es) ^ ")"
+        "(" ^ String.concatWith ", " (List.map toString es) ^ ")"
     | Select (n, e') => "#" ^ Int.toString n ^ " " ^ toStringP e'
     | Let (v, e1, e2) =>
         "let " ^ Id.toString v ^ " = " ^ toString e1 ^ " in " ^ toString e2
