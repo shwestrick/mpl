@@ -434,8 +434,8 @@ type 'a whereAndEqns = WhereEquation.t list * 'a list
 %eop EOF
 %noshift EOF
 
-%header (functor MLLrValsFun (structure Token: TOKEN
-                              structure Ast: AST))
+%header (functor ProtoLrValsFun (structure Token: TOKEN
+                                 structure Ast: AST))
 
 %nonassoc WITHTYPE
 %right AND

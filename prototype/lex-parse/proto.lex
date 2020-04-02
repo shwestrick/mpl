@@ -284,26 +284,77 @@ real=(~?)(({decnum}{frac}?{exp})|({decnum}{frac}{exp}?));
 <INITIAL>{ws}+  => (continue ());
 <INITIAL>{eol}  => (Source.newline (source, lastPos (yypos, yytext)); continue ());
 
+
+<INITIAL>"_address" => (tok (Tokens.ADDRESS, yytext, source, yypos));
+<INITIAL>"_build_const" => (tok (Tokens.BUILD_CONST, yytext, source, yypos));
+<INITIAL>"_command_line_const" => (tok (Tokens.COMMAND_LINE_CONST, yytext, source, yypos));
+<INITIAL>"_const" => (tok (Tokens.CONST, yytext, source, yypos));
+<INITIAL>"_export" => (tok (Tokens.EXPORT, yytext, source, yypos));
+<INITIAL>"_import" => (tok (Tokens.IMPORT, yytext, source, yypos));
+<INITIAL>"_overload" => (tok (Tokens.OVERLOAD, yytext, source, yypos));
+<INITIAL>"_prim" => (tok (Tokens.PRIM, yytext, source, yypos));
+<INITIAL>"_symbol" => (tok (Tokens.SYMBOL, yytext, source, yypos));
+
 <INITIAL>"#" => (tok (Tokens.HASH, yytext, source, yypos));
+<INITIAL>"#[" => (tok (Tokens.HASHLBRACKET, yytext, source, yypos));
 <INITIAL>"(" => (tok (Tokens.LPAREN, yytext, source, yypos));
 <INITIAL>")" => (tok (Tokens.RPAREN, yytext, source, yypos));
 <INITIAL>"," => (tok (Tokens.COMMA, yytext, source, yypos));
 <INITIAL>"->" => (tok (Tokens.ARROW, yytext, source, yypos));
+<INITIAL>"..." => (tok (Tokens.DOTDOTDOT, yytext, source, yypos));
 <INITIAL>":" => (tok (Tokens.COLON, yytext, source, yypos));
+<INITIAL>":>" => (tok (Tokens.COLONGT, yytext, source, yypos));
 <INITIAL>";" => (tok (Tokens.SEMICOLON, yytext, source, yypos));
 <INITIAL>"=" => (tok (Tokens.EQUALOP, yytext, source, yypos));
 <INITIAL>"=>" => (tok (Tokens.DARROW, yytext, source, yypos));
+<INITIAL>"[" => (tok (Tokens.LBRACKET, yytext, source, yypos));
+<INITIAL>"]" => (tok (Tokens.RBRACKET, yytext, source, yypos));
+<INITIAL>"_" => (tok (Tokens.WILD, yytext, source, yypos));
+<INITIAL>"{" => (tok (Tokens.LBRACE, yytext, source, yypos));
+<INITIAL>"|" => (tok (Tokens.BAR, yytext, source, yypos));
+<INITIAL>"}" => (tok (Tokens.RBRACE, yytext, source, yypos));
 
+<INITIAL>"abstype" => (tok (Tokens.ABSTYPE, yytext, source, yypos));
+<INITIAL>"and" => (tok (Tokens.AND, yytext, source, yypos));
+<INITIAL>"andalso" => (tok (Tokens.ANDALSO, yytext, source, yypos));
+<INITIAL>"as" => (tok (Tokens.AS, yytext, source, yypos));
+<INITIAL>"case" => (tok (Tokens.CASE, yytext, source, yypos));
+<INITIAL>"datatype" => (tok (Tokens.DATATYPE, yytext, source, yypos));
+<INITIAL>"do" => (tok (Tokens.DO, yytext, source, yypos));
 <INITIAL>"else" => (tok (Tokens.ELSE, yytext, source, yypos));
 <INITIAL>"end" => (tok (Tokens.END, yytext, source, yypos));
+<INITIAL>"eqtype" => (tok (Tokens.EQTYPE, yytext, source, yypos));
+<INITIAL>"exception" => (tok (Tokens.EXCEPTION, yytext, source, yypos));
 <INITIAL>"fn" => (tok (Tokens.FN, yytext, source, yypos));
 <INITIAL>"fun" => (tok (Tokens.FUN, yytext, source, yypos));
+<INITIAL>"functor" => (tok (Tokens.FUNCTOR, yytext, source, yypos));
+<INITIAL>"handle" => (tok (Tokens.HANDLE, yytext, source, yypos));
 <INITIAL>"if" => (tok (Tokens.IF, yytext, source, yypos));
 <INITIAL>"in" => (tok (Tokens.IN, yytext, source, yypos));
+<INITIAL>"include" => (tok (Tokens.INCLUDE, yytext, source, yypos));
+<INITIAL>"infix" => (tok (Tokens.INFIX, yytext, source, yypos));
+<INITIAL>"infixr" => (tok (Tokens.INFIXR, yytext, source, yypos));
 <INITIAL>"let" => (tok (Tokens.LET, yytext, source, yypos));
+<INITIAL>"local" => (tok (Tokens.LOCAL, yytext, source, yypos));
+<INITIAL>"nonfix" => (tok (Tokens.NONFIX, yytext, source, yypos));
+<INITIAL>"of" => (tok (Tokens.OF, yytext, source, yypos));
+<INITIAL>"op" => (tok (Tokens.OP, yytext, source, yypos));
+<INITIAL>"open" => (tok (Tokens.OPEN, yytext, source, yypos));
+<INITIAL>"orelse" => (tok (Tokens.ORELSE, yytext, source, yypos));
+<INITIAL>"raise" => (tok (Tokens.RAISE, yytext, source, yypos));
+<INITIAL>"rec" => (tok (Tokens.REC, yytext, source, yypos));
+<INITIAL>"sharing" => (tok (Tokens.SHARING, yytext, source, yypos));
+<INITIAL>"sig" => (tok (Tokens.SIG, yytext, source, yypos));
+<INITIAL>"signature" => (tok (Tokens.SIGNATURE, yytext, source, yypos));
+<INITIAL>"struct" => (tok (Tokens.STRUCT, yytext, source, yypos));
+<INITIAL>"structure" => (tok (Tokens.STRUCTURE, yytext, source, yypos));
 <INITIAL>"then" => (tok (Tokens.THEN, yytext, source, yypos));
 <INITIAL>"type" => (tok (Tokens.TYPE, yytext, source, yypos));
 <INITIAL>"val" => (tok (Tokens.VAL, yytext, source, yypos));
+<INITIAL>"where" => (tok (Tokens.WHERE, yytext, source, yypos));
+<INITIAL>"while" => (tok (Tokens.WHILE, yytext, source, yypos));
+<INITIAL>"with" => (tok (Tokens.WITH, yytext, source, yypos));
+<INITIAL>"withtype" => (tok (Tokens.WITHTYPE, yytext, source, yypos));
 
 
 <INITIAL>{alphanumId} => (tok' (Tokens.SHORTALPHANUMID, yytext, source, yypos));
@@ -315,9 +366,9 @@ real=(~?)(({decnum}{frac}?{exp})|({decnum}{frac}{exp}?));
 <INITIAL>{longAlphanumId} => (tok' (Tokens.LONGALPHANUMID, yytext, source, yypos));
 <INITIAL>{longSymId} => (tok' (Tokens.LONGSYMID, yytext, source, yypos));
 
+
 <INITIAL>{real} =>
-   (error (source, yypos, yypos, "Cannot parse reals")
-    ; continue ());
+   (real (source, yypos, yytext));
 <INITIAL>{decnum} =>
    (int (source, yypos, yytext, 0, {extended = NONE}, {negate = false}, StringCvt.DEC));
 <INITIAL>"~"{decnum} =>
@@ -330,6 +381,12 @@ real=(~?)(({decnum}{frac}?{exp})|({decnum}{frac}{exp}?));
    (int (source, yypos, yytext, 2, {extended = SOME "binary notation"}, {negate = false}, StringCvt.BIN));
 <INITIAL>"~0b"{binnum} =>
    (int (source, yypos, yytext, 3, {extended = SOME "binary notation"}, {negate = true}, StringCvt.BIN));
+<INITIAL>"0w"{decnum} =>
+   (word (source, yypos, yytext, 2, {extended = NONE}, StringCvt.DEC));
+<INITIAL>"0wx"{hexnum} =>
+   (word (source, yypos, yytext, 3, {extended = NONE}, StringCvt.HEX));
+<INITIAL>"0wb"{binnum} =>
+   (word (source, yypos, yytext, 3, {extended = SOME "binary notation"}, StringCvt.BIN));
 
 <INITIAL>"\"" =>
    (startText (Source.getPos (source, yypos), fn (cs, l, r) =>
@@ -485,6 +542,18 @@ real=(~?)(({decnum}{frac}?{exp})|({decnum}{frac}{exp}?));
    (addCommentError "Illegal line directive"
     ; YYBEGIN BLOCK_COMMENT
     ; continue ());
+
+
+<INITIAL>"(*#showBasis"{ws}+"\""[^"]*"\""{ws}*"*)" =>
+   (let
+       val file = List.nth (String.split (yytext, #"\""), 1)
+       val file =
+         if OS.Path.isAbsolute file
+            then file
+            else OS.Path.mkCanonical (OS.Path.concat (OS.Path.dir (Source.name source), file))
+   in
+       tok' (fn (_, l, r) => Tokens.SHOW_BASIS (file, l, r), yytext, source, yypos)
+   end);
 
 
 <INITIAL>. =>

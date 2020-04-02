@@ -19,8 +19,8 @@ struct
 
 structure Ast = Ast
 
-structure LrVals = MLLrValsFun (structure Token = LrParser.Token
-                                structure Ast = Ast)
+structure LrVals = ProtoLrValsFun (structure Token = LrParser.Token
+                                   structure Ast = Ast)
 structure Lex = ProtoLexFun (structure Tokens = LrVals.Tokens)
 structure Parse = JoinWithArg (structure ParserData = LrVals.ParserData
                                structure Lex = Lex
