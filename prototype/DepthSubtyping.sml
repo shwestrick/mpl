@@ -226,7 +226,7 @@ struct
 
   fun fromLang (exp: Lang.exp): exp =
     case exp of
-      Lang.Loc _ => raise Fail ("Lang3 does not have locations")
+      Lang.Loc _ => raise Fail ("DS does not have locations")
     | Lang.Num n => Num (uu, n)
     | Lang.Var v => Var (uu, v)
     | Lang.Ref e => Ref (uu, fromLang e)
@@ -391,7 +391,7 @@ struct
       Num _ => vars
     | Var (_, v) =>
         if not (IdSet.member v ctx) then
-          raise Fail ("Lang3.checkScoping Var: "
+          raise Fail ("DS.checkScoping Var: "
                       ^ Id.toString v ^ " not in scope")
         else
           vars
@@ -423,7 +423,7 @@ struct
         checkScoping vars ctx e
     | Let (_, v, e1, e2) =>
         if IdSet.member v vars then
-          raise Fail ("Lang3.checkScoping Let: "
+          raise Fail ("DS.checkScoping Let: "
                       ^ Id.toString v ^ " not uniquely bound")
         else
           let
@@ -435,10 +435,10 @@ struct
           end
     | Func (_, func, arg, body) =>
         if IdSet.member func vars then
-          raise Fail ("Lang3.checkScoping Func: "
+          raise Fail ("DS.checkScoping Func: "
                       ^ Id.toString func ^ " not uniquely bound")
         else if IdSet.member arg vars then
-          raise Fail ("Lang3.checkScoping Func: "
+          raise Fail ("DS.checkScoping Func: "
                       ^ Id.toString arg ^ " not uniquely bound")
         else
           let
@@ -499,7 +499,7 @@ struct
             let
               val t'' = Typ.unify (t, t')
                 handle Overconstrained =>
-                raise Fail ("Lang3.refineTyp Var: "
+                raise Fail ("DS.refineTyp Var: "
                 ^ "expected type " ^ Typ.toString t ^ " but found variable "
                 ^ Id.toString v ^ " of type " ^ Typ.toString t')
             in
@@ -519,7 +519,7 @@ struct
     | Num (t, n) =>
         ({vars = vars, exp = Num (Typ.unify (t, Typ.Num depth), n)}
             handle Overconstrained =>
-            raise Fail ("Lang3.refineTyp Num: expected type "
+            raise Fail ("DS.refineTyp Num: expected type "
             ^ Typ.toString t ^ " but found type "
             ^ Typ.toString (Typ.Num depth)))
 
@@ -532,14 +532,14 @@ struct
               , depth = depth
               , exp = refineRootTyp e1 t1
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp App: expected function of type "
+                  raise Fail ("DS.refineTyp App: expected function of type "
                   ^ Typ.toString t1 ^ " but found " ^ Typ.toString (typOf e1))
               }
 
           val (t2, t') =
             case typOf e1' of
               Typ.Func (_, t2, t') => (t2, t')
-            | _ => raise Fail ("Lang3.refineTyp App: bug in refinement of e1")
+            | _ => raise Fail ("DS.refineTyp App: bug in refinement of e1")
 
           val {vars, exp=e2'} =
             refineTyp
@@ -547,7 +547,7 @@ struct
               , depth = depth
               , exp = refineRootTyp e2 t2
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp App: function expects argument "
+                  raise Fail ("DS.refineTyp App: function expects argument "
                   ^ "of type " ^ Typ.toString t2 ^ " but found type "
                   ^ Typ.toString (typOf e2))
               }
@@ -555,7 +555,7 @@ struct
           { vars = vars
           , exp = App (Typ.unify (t, t'), e1', e2')
               handle Overconstrained =>
-              raise Fail ("Lang3.refineTyp App: bug in final refinement")
+              raise Fail ("DS.refineTyp App: bug in final refinement")
           }
         end
 
@@ -572,7 +572,7 @@ struct
                       , depth = depth + 1
                       , exp = refineRootTyp ee tee
                           handle Overconstrained =>
-                          raise Fail ("Lang3.refineTyp Par: "
+                          raise Fail ("DS.refineTyp Par: "
                           ^ "expected component #" ^ Int.toString idx
                           ^ "of type " ^ Typ.toString tee ^ " but found "
                           ^ Typ.toString (typOf ee))
@@ -601,7 +601,7 @@ struct
           { vars = vars
           , exp = Par (Typ.unify (t, t'), es')
               handle Overconstrained =>
-              raise Fail ("Lang3.refineTyp Par: bug in final refinement")
+              raise Fail ("DS.refineTyp Par: bug in final refinement")
           }
         end
 
@@ -618,7 +618,7 @@ struct
                       , depth = depth
                       , exp = refineRootTyp ee tee
                           handle Overconstrained =>
-                          raise Fail ("Lang3.refineTyp Tuple: "
+                          raise Fail ("DS.refineTyp Tuple: "
                           ^ "expected component #" ^ Int.toString idx
                           ^ "of type " ^ Typ.toString tee ^ " but found "
                           ^ Typ.toString (typOf ee))
@@ -646,7 +646,7 @@ struct
           { vars = vars
           , exp = Tuple (Typ.unify (t, t'), es')
               handle Overconstrained =>
-              raise Fail ("Lang3.refineTyp Tuple: bug in final refinement")
+              raise Fail ("DS.refineTyp Tuple: bug in final refinement")
           }
         end
 
@@ -659,7 +659,7 @@ struct
             case typOf ee of
               Typ.Prod (_, ts) =>
                 if i >= List.length ts then
-                  raise Fail ("Lang3.refineTyp Select: cannot select component "
+                  raise Fail ("DS.refineTyp Select: cannot select component "
                   ^ "#" ^ Int.toString n ^ " on tuple of size "
                   ^ Int.toString (List.length ts))
                 else
@@ -673,7 +673,7 @@ struct
               , depth = depth
               , exp = refineRootTyp ee tee
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp Select: expected tuple of type "
+                  raise Fail ("DS.refineTyp Select: expected tuple of type "
                   ^ Typ.toString tee ^ " but found "
                   ^ Typ.toString (typOf ee))
               }
@@ -683,16 +683,16 @@ struct
               Typ.Prod (_, ts) =>
                 (List.nth (ts, i)
                   handle Subscript =>
-                  raise Fail ("Lang3.refineTyp Select: bug: tuple size"))
+                  raise Fail ("DS.refineTyp Select: bug: tuple size"))
 
             | Typ.Unknown => Typ.Unknown
 
-            | _ => raise Fail ("Lang3.refineTyp Select: bug")
+            | _ => raise Fail ("DS.refineTyp Select: bug")
         in
           { vars = vars
           , exp = Select (Typ.unify (t, t'), n, ee')
               handle Overconstrained =>
-              raise Fail ("Lang3.refineTyp Select: unexpected bug in final refine")
+              raise Fail ("DS.refineTyp Select: unexpected bug in final refine")
           }
         end
 
@@ -709,7 +709,7 @@ struct
               , depth = depth
               , exp = refineRootTyp ee tee
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp Ref: expected type "
+                  raise Fail ("DS.refineTyp Ref: expected type "
                   ^ Typ.toString tee ^ " but found "
                   ^ Typ.toString (typOf ee))
               }
@@ -719,7 +719,7 @@ struct
           { vars = vars
           , exp = Ref (Typ.unify (t, t'), ee')
               handle Overconstrained =>
-              raise Fail ("Lang3.refineTyp Ref: unexpected bug in final refine")
+              raise Fail ("DS.refineTyp Ref: unexpected bug in final refine")
           }
         end
 
@@ -733,7 +733,7 @@ struct
               , depth = depth
               , exp = refineRootTyp ee tee
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp Bang: expected type "
+                  raise Fail ("DS.refineTyp Bang: expected type "
                   ^ Typ.toString tee ^ " but found "
                   ^ Typ.toString (typOf ee))
               }
@@ -741,12 +741,12 @@ struct
           val t' =
             case typOf ee' of
               Typ.Ref (_, _, t') => t'
-            | _ => raise Fail ("Lang3.refineTyp Bang: bug")
+            | _ => raise Fail ("DS.refineTyp Bang: bug")
         in
           { vars = vars
           , exp = Bang (Typ.unify (t, t'), ee')
               handle Overconstrained =>
-              raise Fail ("Lang3.refineTyp Bang: unexpected bug in final refine")
+              raise Fail ("DS.refineTyp Bang: unexpected bug in final refine")
           }
         end
 
@@ -760,7 +760,7 @@ struct
               , depth = depth
               , exp = refineRootTyp e1 t1
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp Upd: "
+                  raise Fail ("DS.refineTyp Upd: "
                   ^ " in `" ^ toString exp ^ "`"
                   ^ " expected left-hand type "
                   ^ Typ.toString t1 ^ " but found "
@@ -770,7 +770,7 @@ struct
           val t2 =
             case typOf e1' of
               Typ.Ref (_, t2, _) => t2
-            | _ => raise Fail ("Lang3.refineTyp Upd: bug")
+            | _ => raise Fail ("DS.refineTyp Upd: bug")
 
           val {vars, exp=e2'} =
             refineTyp
@@ -778,7 +778,7 @@ struct
               , depth = depth
               , exp = refineRootTyp e2 t2
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp Upd: "
+                  raise Fail ("DS.refineTyp Upd: "
                   ^ " in `" ^ toString exp ^ "`"
                   ^ " expected right-hand type "
                   ^ Typ.toString t2 ^ " but found "
@@ -790,7 +790,7 @@ struct
           { vars = vars
           , exp = Upd (Typ.unify (t, t'), e1', e2')
               handle Overconstrained =>
-              raise Fail ("Lang3.refineTyp Upd: unexpected bug in final refine")
+              raise Fail ("DS.refineTyp Upd: unexpected bug in final refine")
           }
         end
 
@@ -804,7 +804,7 @@ struct
               , depth = depth
               , exp = refineRootTyp ee tee
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp Alloc: "
+                  raise Fail ("DS.refineTyp Alloc: "
                   ^ " expected type "
                   ^ Typ.toString tee ^ " but found "
                   ^ Typ.toString (typOf ee))
@@ -816,7 +816,7 @@ struct
           { vars = vars
           , exp = Alloc (Typ.unify (t, t'), ee')
               handle Overconstrained =>
-              raise Fail ("Lang3.refineTyp Alloc: bug")
+              raise Fail ("DS.refineTyp Alloc: bug")
           }
         end
 
@@ -830,7 +830,7 @@ struct
               , depth = depth
               , exp = refineRootTyp ee tee
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp Length: "
+                  raise Fail ("DS.refineTyp Length: "
                   ^ " expected type "
                   ^ Typ.toString tee ^ " but found "
                   ^ Typ.toString (typOf ee))
@@ -841,7 +841,7 @@ struct
           { vars = vars
           , exp = Length (Typ.unify (t, t'), ee')
               handle Overconstrained =>
-              raise Fail ("Lang3.refineTyp Length: bug")
+              raise Fail ("DS.refineTyp Length: bug")
           }
         end
 
@@ -855,7 +855,7 @@ struct
               , depth = depth
               , exp = refineRootTyp e1 t1
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp ASub: "
+                  raise Fail ("DS.refineTyp ASub: "
                   ^ " expected type "
                   ^ Typ.toString t1 ^ " but found "
                   ^ Typ.toString (typOf e1))
@@ -864,7 +864,7 @@ struct
           val t' =
             case typOf e1' of
               Typ.Array (_, _, t') => t'
-            | _ => raise Fail ("Lang3.refineTyp ASub: bug")
+            | _ => raise Fail ("DS.refineTyp ASub: bug")
 
           val t2 = Typ.Num depth
 
@@ -874,7 +874,7 @@ struct
               , depth = depth
               , exp = refineRootTyp e2 t2
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp ASub: "
+                  raise Fail ("DS.refineTyp ASub: "
                   ^ " expected type "
                   ^ Typ.toString t2 ^ " but found "
                   ^ Typ.toString (typOf e2))
@@ -883,7 +883,7 @@ struct
           { vars = vars
           , exp = ASub (Typ.unify (t, t'), e1', e2')
               handle Overconstrained =>
-              raise Fail ("Lang3.refineType ASub: bug in final refine")
+              raise Fail ("DS.refineType ASub: bug in final refine")
           }
         end
 
@@ -897,7 +897,7 @@ struct
               , depth = depth
               , exp = refineRootTyp e1 t1
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp AUpd: "
+                  raise Fail ("DS.refineTyp AUpd: "
                   ^ " expected type "
                   ^ Typ.toString t1 ^ " but found "
                   ^ Typ.toString (typOf e1))
@@ -906,7 +906,7 @@ struct
           val t' =
             case typOf e1' of
               Typ.Array (_, t', _) => t'
-            | _ => raise Fail ("Lang3.refineTyp AUpd: bug")
+            | _ => raise Fail ("DS.refineTyp AUpd: bug")
 
           val t2 = Typ.Num depth
 
@@ -916,7 +916,7 @@ struct
               , depth = depth
               , exp = refineRootTyp e2 t2
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp AUpd: "
+                  raise Fail ("DS.refineTyp AUpd: "
                   ^ " expected type "
                   ^ Typ.toString t2 ^ " but found "
                   ^ Typ.toString (typOf e2))
@@ -930,7 +930,7 @@ struct
               , depth = depth
               , exp = refineRootTyp e3 t3
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp AUpd: "
+                  raise Fail ("DS.refineTyp AUpd: "
                   ^ " expected type "
                   ^ Typ.toString t3 ^ " but found "
                   ^ Typ.toString (typOf e3))
@@ -941,7 +941,7 @@ struct
           { vars = vars
           , exp = AUpd (Typ.unify (t, t'), e1', e2', e3')
               handle Overconstrained =>
-              raise Fail ("Lang3.refineType AUpd: bug in final refine")
+              raise Fail ("DS.refineType AUpd: bug in final refine")
           }
         end
 
@@ -958,7 +958,7 @@ struct
                       , depth = depth
                       , exp = refineRootTyp ee tee
                           handle Overconstrained =>
-                          raise Fail ("Lang3.refineTyp Array: "
+                          raise Fail ("DS.refineTyp Array: "
                           ^ "expected idx " ^ Int.toString idx
                           ^ " to have type "
                           ^ Typ.toString tee
@@ -975,7 +975,7 @@ struct
             case t of
               Typ.Array (_, x, _) => x
             | Typ.Unknown => Typ.Unknown
-            | _ => raise Fail ("Lang3.refineTyp Array: bug")
+            | _ => raise Fail ("DS.refineTyp Array: bug")
 
           val (vars, tee', es') = refineSubExps vars 0 tee es
 
@@ -984,7 +984,7 @@ struct
           { vars = vars
           , exp = Array (Typ.unify (t, t'), es')
               handle Overconstrained =>
-              raise Fail ("Lang3.refineTyp Array: bug in final refinement")
+              raise Fail ("DS.refineTyp Array: bug in final refinement")
           }
         end
 
@@ -1003,7 +1003,7 @@ struct
               , depth = depth
               , exp = refineRootTyp e2 t
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp Seq: expected type "
+                  raise Fail ("DS.refineTyp Seq: expected type "
                   ^ Typ.toString t ^ " but found "
                   ^ Typ.toString (typOf e2))
               }
@@ -1018,7 +1018,7 @@ struct
           fun updateVarTyp (t1Old, t1New) =
             Typ.unify (t1Old, t1New)
             handle Overconstrained =>
-            raise Fail ("Lang3.refineTyp Let: "
+            raise Fail ("DS.refineTyp Let: "
             ^ "expected variable " ^ Id.toString v ^ " to have type "
             ^ Typ.toString t1New ^ " but apparently it has type "
             ^ Typ.toString t1Old)
@@ -1032,7 +1032,7 @@ struct
               , depth = depth
               , exp = refineRootTyp e1 t1
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp Let: variable "
+                  raise Fail ("DS.refineTyp Let: variable "
                   ^ Id.toString v ^ " has type "
                   ^ Typ.toString t1 ^ " but is bound to expression of type "
                   ^ Typ.toString (typOf e1))
@@ -1046,7 +1046,7 @@ struct
               , depth = depth
               , exp = refineRootTyp e2 t
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp Let: expected type "
+                  raise Fail ("DS.refineTyp Let: expected type "
                   ^ Typ.toString t ^ " but found expression of type "
                   ^ Typ.toString (typOf e2))
               }
@@ -1056,7 +1056,7 @@ struct
           { vars = vars
           , exp = Let (Typ.unify (t, t'), v, e1', e2')
               handle Overconstrained =>
-              raise Fail ("Lang3.refineTyp Let: bug in final refine")
+              raise Fail ("DS.refineTyp Let: bug in final refine")
           }
         end
 
@@ -1072,7 +1072,7 @@ struct
           fun updateFuncTyp (tOld, tNew) =
             Typ.unify (tOld, tNew)
             handle Overconstrained =>
-            raise Fail ("Lang3.refineTyp Func: "
+            raise Fail ("DS.refineTyp Func: "
             ^ "expected function " ^ Id.toString func ^ " to have type "
             ^ Typ.toString tNew ^ " but apparently it has type "
             ^ Typ.toString tOld)
@@ -1089,7 +1089,7 @@ struct
           fun updateArgTyp (t1Old, t1New) =
             Typ.unify (t1Old, t1New)
             handle Overconstrained =>
-            raise Fail ("Lang3.refineTyp Func: "
+            raise Fail ("DS.refineTyp Func: "
             ^ "expected argument " ^ Id.toString arg ^ " to have type "
             ^ Typ.toString t1New ^ " but apparently it has type "
             ^ Typ.toString t1Old)
@@ -1104,7 +1104,7 @@ struct
               , depth = depth
               , exp = refineRootTyp body t2
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp Func: "
+                  raise Fail ("DS.refineTyp Func: "
                   ^ "expected body to have type " ^ Typ.toString t2
                   ^ "but found type " ^ Typ.toString (typOf body))
               }
@@ -1116,7 +1116,7 @@ struct
           { vars = vars
           , exp = Func (Typ.unify (t, t'), func, arg, body')
               handle Overconstrained =>
-              raise Fail ("Lang3.refineTyp Func: bug in final refinement")
+              raise Fail ("DS.refineTyp Func: bug in final refinement")
           }
         end
 
@@ -1124,7 +1124,7 @@ struct
         let
           val t = Typ.unify (t, Typ.Num depth)
             handle Overconstrained =>
-            raise Fail ("Lang3.refineTyp Op: expected result type "
+            raise Fail ("DS.refineTyp Op: expected result type "
             ^ Typ.toString t ^ " but found "
             ^ Typ.toString (Typ.Num depth))
 
@@ -1134,7 +1134,7 @@ struct
               , depth = depth
               , exp = refineRootTyp e1 (Typ.Num depth)
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp Op: expected type "
+                  raise Fail ("DS.refineTyp Op: expected type "
                   ^ Typ.toString (Typ.Num depth) ^ " but found "
                   ^ Typ.toString (typOf e1))
               }
@@ -1145,7 +1145,7 @@ struct
               , depth = depth
               , exp = refineRootTyp e2 (Typ.Num depth)
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp Op: expected type "
+                  raise Fail ("DS.refineTyp Op: expected type "
                   ^ Typ.toString (Typ.Num depth) ^ " but found "
                   ^ Typ.toString (typOf e2))
               }
@@ -1163,7 +1163,7 @@ struct
               , depth = depth
               , exp = refineRootTyp e1 (Typ.Num depth)
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp IfZero: expected type "
+                  raise Fail ("DS.refineTyp IfZero: expected type "
                   ^ Typ.toString (Typ.Num depth) ^ " but found "
                   ^ Typ.toString (typOf e1))
               }
@@ -1174,7 +1174,7 @@ struct
               , depth = depth
               , exp = refineRootTyp e2 t
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp IfZero: expected type "
+                  raise Fail ("DS.refineTyp IfZero: expected type "
                   ^ Typ.toString t ^ " but found "
                   ^ Typ.toString (typOf e1))
               }
@@ -1185,7 +1185,7 @@ struct
               , depth = depth
               , exp = refineRootTyp e3 t
                   handle Overconstrained =>
-                  raise Fail ("Lang3.refineTyp IfZero: expected type "
+                  raise Fail ("DS.refineTyp IfZero: expected type "
                   ^ Typ.toString t ^ " but found "
                   ^ Typ.toString (typOf e3))
               }
@@ -1193,7 +1193,7 @@ struct
           { vars = vars
           , exp = IfZero (Typ.unify (typOf e2', typOf e3'), e1', e2', e3')
               handle Overconstrained =>
-              raise Fail ("Lang3.refineTyp IfZero: then- and else- branches disagree: "
+              raise Fail ("DS.refineTyp IfZero: then- and else- branches disagree: "
               ^ " then-branch is type "
               ^ Typ.toString (typOf e2')
               ^ " but else-branch is type "
