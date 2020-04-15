@@ -1,6 +1,5 @@
-(* Lang3 has depthed types with subtyping.
- * Derived from Lang3. *)
-structure Lang3 =
+(* Assigns types to Lang terms based on fork depths and subtyping. *)
+structure DepthSubtyping =
 struct
 
   fun parens s = "(" ^ s ^ ")"
@@ -225,29 +224,30 @@ struct
 
   val uu = Typ.Unknown
 
-  fun from0 (exp: Lang0.exp): exp =
+  fun fromLang (exp: Lang.exp): exp =
     case exp of
-      Lang0.Loc _ => raise Fail ("Lang3 does not have locations")
-    | Lang0.Num n => Num (uu, n)
-    | Lang0.Var v => Var (uu, v)
-    | Lang0.Ref e => Ref (uu, from0 e)
-    | Lang0.Bang e => Bang (uu, from0 e)
-    | Lang0.Upd (e1, e2) => Upd (uu, from0 e1, from0 e2)
-    | Lang0.Seq (e1, e2) => Seq (uu, from0 e1, from0 e2)
-    | Lang0.App (e1, e2) => App (uu, from0 e1, from0 e2)
-    | Lang0.Array es => Array (uu, List.map from0 es)
-    | Lang0.Alloc e => Alloc (uu, from0 e)
-    | Lang0.AUpd (e1, e2, e3) => AUpd (uu, from0 e1, from0 e2, from0 e3)
-    | Lang0.ASub (e1, e2) => ASub (uu, from0 e1, from0 e2)
-    | Lang0.Length e => Length (uu, from0 e)
-    | Lang0.Par es => Par (uu, List.map from0 es)
-    | Lang0.Tuple es => Tuple (uu, List.map from0 es)
-    | Lang0.Select (n, e') => Select (uu, n, from0 e')
-    | Lang0.Let (v, e1, e2) => Let (uu, v, from0 e1, from0 e2)
-    | Lang0.Func (f, a, b) => Func (uu, f, a, from0 b)
-    | Lang0.Op (name, f, e1, e2) => Op (uu, name, f, from0 e1, from0 e2)
-    | Lang0.IfZero (e1, e2, e3) =>
-        IfZero (uu, from0 e1, from0 e2, from0 e3)
+      Lang.Loc _ => raise Fail ("Lang3 does not have locations")
+    | Lang.Num n => Num (uu, n)
+    | Lang.Var v => Var (uu, v)
+    | Lang.Ref e => Ref (uu, fromLang e)
+    | Lang.Bang e => Bang (uu, fromLang e)
+    | Lang.Upd (e1, e2) => Upd (uu, fromLang e1, fromLang e2)
+    | Lang.Seq (e1, e2) => Seq (uu, fromLang e1, fromLang e2)
+    | Lang.App (e1, e2) => App (uu, fromLang e1, fromLang e2)
+    | Lang.Array es => Array (uu, List.map fromLang es)
+    | Lang.Alloc e => Alloc (uu, fromLang e)
+    | Lang.AUpd (e1, e2, e3) =>
+        AUpd (uu, fromLang e1, fromLang e2, fromLang e3)
+    | Lang.ASub (e1, e2) => ASub (uu, fromLang e1, fromLang e2)
+    | Lang.Length e => Length (uu, fromLang e)
+    | Lang.Par es => Par (uu, List.map fromLang es)
+    | Lang.Tuple es => Tuple (uu, List.map fromLang es)
+    | Lang.Select (n, e') => Select (uu, n, fromLang e')
+    | Lang.Let (v, e1, e2) => Let (uu, v, fromLang e1, fromLang e2)
+    | Lang.Func (f, a, b) => Func (uu, f, a, fromLang b)
+    | Lang.Op (name, f, e1, e2) => Op (uu, name, f, fromLang e1, fromLang e2)
+    | Lang.IfZero (e1, e2, e3) =>
+        IfZero (uu, fromLang e1, fromLang e2, fromLang e3)
 
   fun fold (p as {combine=c: 'a * 'b -> 'b,
                   typ: typ -> 'a,
@@ -1201,9 +1201,9 @@ struct
           }
         end
 
-  fun inferType (exp: Lang0.exp): exp =
+  fun inferType (exp: Lang.exp): exp =
     let
-      val exp = from0 exp
+      val exp = fromLang exp
       val _ = checkScoping IdSet.empty IdSet.empty exp
 
       fun loop vars exp =

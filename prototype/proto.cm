@@ -9,7 +9,5 @@ Group is
   lib/TreeSet.sml
   lib/AdjacencyGraph.sml
   Identifier.sml
-  Lang0.sml
-  (* Lang1.sml *)
-  (* Lang2.sml *)
-  Lang3.sml
+  Lang.sml
+  DepthSubtyping.sml
