@@ -10,4 +10,5 @@ Group is
   lib/AdjacencyGraph.sml
   Identifier.sml
   Lang.sml
+  ShapeTyping.sml
   DepthSubtyping.sml
