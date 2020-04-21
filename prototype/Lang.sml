@@ -138,6 +138,96 @@ struct
       | IfZero (e1, e2, e3) => IfZero (doit e1, doit e2, doit e3)
     end
 
+  (* =======================================================================
+   * let-normal form
+   * "A-normal" form??
+   *)
+
+  fun normalizeMany (exps: exp list) (makeBase: exp list -> exp) =
+    let
+      (* first, generate identifiers and normalize where needed *)
+      val exps =
+        List.map
+          (fn Var v => {var = v, exp = Var v, fresh = false}
+            | e     => {var = Id.new "xxx", exp = letNormalize e, fresh = true})
+        exps
+
+      fun makeNext ({var, exp, fresh}, base) =
+        if fresh then
+          Let (var, exp, base)
+        else
+          base
+
+      val vars = List.map (Var o #var) exps
+    in
+      List.foldr makeNext (makeBase vars) exps
+    end
+
+  and normalize1 e (mb: exp -> exp) =
+    normalizeMany [e] (fn [e'] => mb e'
+                        | _ => raise Fail "normalize1")
+  and normalize2 (e1, e2) (mb: exp * exp -> exp) =
+    normalizeMany [e1, e2] (fn [e1', e2'] => mb (e1', e2')
+                             | _ => raise Fail "normalize2")
+  and normalize3 (e1, e2, e3) (mb: exp * exp * exp -> exp) =
+    normalizeMany [e1, e2, e3] (fn [e1', e2', e3'] => mb (e1', e2', e3')
+                                 | _ => raise Fail "normalize3")
+
+  and letNormalize exp =
+    case exp of
+      Var v                  => exp
+    | Num n                  => exp
+    | Loc l                  => exp
+    | Let (v, e1, e2)        => Let (v, letNormalize e1, letNormalize e2)
+    | Func (func, arg, body) => Func (func, arg, letNormalize body)
+    | Par es                 => Par (List.map letNormalize es)
+    | Ref e                  => normalize1 e Ref
+    | Upd (e1, e2)           => normalize2 (e1, e2) Upd
+    | Bang e                 => normalize1 e Bang
+    | Array es               => normalizeMany es Array
+    | Alloc e                => normalize1 e Alloc
+    | AUpd (e1, e2, e3)      => normalize3 (e1, e2, e3) AUpd
+    | ASub (e1, e2)          => normalize2 (e1, e2) ASub
+    | Length e               => normalize1 e Length
+    | App (e1, e2)           => normalize2 (e1, e2) App
+    | Seq (e1, e2)           => normalize2 (e1, e2) Seq
+    | Tuple es               => normalizeMany es Tuple
+    | Select (n, e)          => normalize1 e (fn e' => Select (n, e'))
+    | IfZero (e1, e2, e3)    =>
+        normalize1 e1 (fn e1' => IfZero (e1', letNormalize e2, letNormalize e3))
+    | Op (name, f, e1, e2) =>
+        normalize2 (e1, e2) (fn (e1', e2') => Op (name, f, e1', e2'))
+
+  fun isVar (Var _) = true
+    | isVar _ = false
+
+  fun isLetNormal exp =
+    case exp of
+      Var v                  => true
+    | Num n                  => true
+    | Loc l                  => true
+    | Seq (e1, e2)           => isLetNormal e1 andalso isLetNormal e2
+    | Let (v, e1, e2)        => isLetNormal e1 andalso isLetNormal e2
+    | Func (func, arg, body) => isLetNormal body
+    | Par es                 => List.all isLetNormal es
+    | Ref e                  => isVar e
+    | Upd (e1, e2)           => isVar e1 andalso isVar e2
+    | Bang e                 => isVar e
+    | Array es               => List.all isVar es
+    | Alloc e                => isVar e
+    | AUpd (e1, e2, e3)      => isVar e1 andalso isVar e2 andalso isVar e3
+    | ASub (e1, e2)          => isVar e1 andalso isVar e2
+    | Length e               => isVar e
+    | App (e1, e2)           => isVar e1 andalso isVar e2
+    | Tuple es               => List.all isVar es
+    | Select (n, e)          => isVar e
+    | IfZero (e1, e2, e3)    => isVar e1 andalso isLetNormal e2 andalso isLetNormal e3
+    | Op (name, f, e1, e2)   => isVar e1 andalso isVar e2
+
+  (* =======================================================================
+   * execution
+   *)
+
   (* mapping of locations to expressions *)
   type memory = exp IdTable.t
 
