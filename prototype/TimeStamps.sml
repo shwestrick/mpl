@@ -354,8 +354,7 @@ struct
   exception NYI (* not yet implemented *)
 
   type stamp_exp_input =
-    { exp: ShapeTyping.exp
-    , ord: StampGraph.t
+    { ord: StampGraph.t
     , ctx: Typ.t IdTable.t
     , startTime: stamp
     }
@@ -366,8 +365,8 @@ struct
     , endTime: stamp
     }
 
-  fun stampExp (stuff: stamp_exp_input) : stamp_exp_output =
-    case #exp stuff of
+  fun stampExp (stuff: stamp_exp_input) (e: ShapeTyping.exp) : stamp_exp_output =
+    case e of
       ShapeTyping.Var x    => stampVar stuff x
     | ShapeTyping.Num x    => stampNum stuff x
     | ShapeTyping.App x    => stampApp stuff x
@@ -388,7 +387,17 @@ struct
     | ShapeTyping.ASub x   => stampASub stuff x
     | ShapeTyping.Length x => stampLength stuff x
 
-  and stampVar {ord, ctx, startTime, ...} (_, v) =
+  and stampExpectVar {ord, ctx, startTime} (e: ShapeTyping.exp) =
+    case e of
+      ShapeTyping.Var (_, v) =>
+        (case IdTable.lookup v ctx of
+          NONE => raise Fail ("TS.stampExpectVar: unknown var " ^ Id.toString v)
+        | SOME t => Var (t, v))
+
+    | _ => raise Fail ("TS.stampExpectVar: expected var expression, but " ^
+           "found " ^ ShapeTyping.toString e)
+
+  and stampVar {ord, ctx, startTime} (_, v) =
     case IdTable.lookup v ctx of
       NONE => raise Fail ("TS.stampVar: unknown var " ^ Id.toString v)
     | SOME t =>
@@ -397,16 +406,16 @@ struct
         , endTime = startTime
         }
 
-  and stampNum {ord, ctx, startTime, ...} (_, n) =
+  and stampNum {ord, ctx, startTime} (_, n) =
     { exp = Num (Typ.Num startTime, n)
     , fresh = StampGraph.empty
     , endTime = startTime
     }
 
-  and stampApp {ord, ctx, startTime, ...} x =
+  and stampApp {ord, ctx, startTime} x =
     raise NYI
 
-  and stampPar {ord, ctx, startTime, ...} (_, es) =
+  and stampPar {ord, ctx, startTime} (_, es) =
     let
       fun stampChild child =
         let
@@ -416,8 +425,8 @@ struct
             { ord = StampGraph.insertEdge (startTime, childStartTime) ord
             , ctx = ctx
             , startTime = childStartTime
-            , exp = child
             }
+            child
         in
           (childStartTime, childEndTime, fresh, child')
         end
@@ -446,56 +455,133 @@ struct
       }
     end
 
-  and stampTuple {ord, ctx, startTime, ...} x =
-    raise NYI
-
-  and stampSelect {ord, ctx, startTime, ...} x =
-    raise NYI
-
-  and stampLet {ord, ctx, startTime, ...} x =
-    raise NYI
-
-  and stampOp {ord, ctx, startTime, ...} x =
-    raise NYI
-
-  and stampIfZero {ord, ctx, startTime, ...} x =
-    raise NYI
-
-  and stampFunc {ord, ctx, startTime, ...} x =
-    raise NYI
-
-  and stampRef {ord, ctx, startTime, ...} x =
-    raise NYI
-
-  and stampBang {ord, ctx, startTime, ...} x =
-    raise NYI
-
-  and stampUpd {ord, ctx, startTime, ...} x =
-    raise NYI
-
-  and stampSeq {ord, ctx, startTime, ...} x =
-    raise NYI
-
-  and stampArray {ord, ctx, startTime, ...} x =
-    raise NYI
-
-  and stampAlloc {ord, ctx, startTime, ...} x =
-    raise NYI
-
-  and stampAUpd {ord, ctx, startTime, ...} x =
-    raise NYI
-
-  and stampASub {ord, ctx, startTime, ...} x =
-    raise NYI
-
-  and stampLength {ord, ctx, startTime, ...} x =
-    raise NYI
-
-
-  (* fun inferType (exp: Lang.exp): exp =
+  and stampTuple input (_, es) =
     let
-      val shaped = ShapeTyping.inferType exp
+      (* due to let-normal form, time should stand still, because all
+       * subexpressions should be vars *)
+      val es' = List.map (stampExpectVar input) es
+      val typ = Typ.Prod (#startTime input, List.map typOf es')
     in
-    end *)
+      { exp = Tuple (typ, es')
+      , endTime = #startTime input
+      , fresh = StampGraph.empty
+      }
+    end
+
+  and stampSelect input (_, n, e) =
+    let
+      val e' = stampExpectVar input e
+
+      val typ =
+        case typOf e' of
+          Typ.Prod (_, ts) =>
+            (List.nth (ts, n-1)
+             handle Subscript =>
+               raise Fail ("TS.stampSelect: index out-of-bounds"))
+        | _ => raise Fail ("TS.stampSelect: expected product")
+    in
+      { exp = Select (typ, n, e')
+      , endTime = #startTime input
+      , fresh = StampGraph.empty
+      }
+    end
+
+  and stampLet {ord, ctx, startTime} (_, v, e1, e2) =
+    let
+      val {exp=e1', endTime=d1, fresh=fresh1} =
+        stampExp
+          { ord = ord
+          , ctx = ctx
+          , startTime = startTime
+          }
+          e1
+
+      val {exp=e2', endTime=d2, fresh=fresh2} =
+        stampExp
+          { ord = unions [ord, fresh1]
+          , ctx = IdTable.insert (v, typOf e1') ctx
+          , startTime = d1
+          }
+          e2
+    in
+      { exp = Let (typOf e2', v, e1', e2')
+      , endTime = d2
+      , fresh = unions [fresh1, fresh2]
+      }
+    end
+
+  and stampOp input (_, name, oper, e1, e2) =
+    let
+      val e1' = stampExpectVar input e1
+      val e2' = stampExpectVar input e2
+
+      val typ = Typ.Num (#startTime input)
+    in
+      { exp = Op (typ, name, oper, e1', e2')
+      , endTime = #startTime input
+      , fresh = StampGraph.empty
+      }
+    end
+
+  and stampIfZero {ord, ctx, startTime} x =
+    raise NYI
+
+  and stampFunc {ord, ctx, startTime} x =
+    raise NYI
+
+  and stampRef {ord, ctx, startTime} x =
+    raise NYI
+
+  and stampBang {ord, ctx, startTime} x =
+    raise NYI
+
+  and stampUpd {ord, ctx, startTime} x =
+    raise NYI
+
+  and stampSeq {ord, ctx, startTime} x =
+    raise NYI
+
+  and stampArray {ord, ctx, startTime} x =
+    raise NYI
+
+  and stampAlloc {ord, ctx, startTime} x =
+    raise NYI
+
+  and stampAUpd {ord, ctx, startTime} x =
+    raise NYI
+
+  and stampASub {ord, ctx, startTime} x =
+    raise NYI
+
+  and stampLength {ord, ctx, startTime} x =
+    raise NYI
+
+
+  fun inferType (exp: Lang.exp): exp =
+    if not (Lang.isLetNormal exp) then
+      raise Fail ("TS.inferType: expression must be let-normalized")
+    else
+      let
+        val shaped = ShapeTyping.inferType exp
+
+        val startTime = Id.stamp ()
+        val ord = StampGraph.fromVertices [startTime]
+        val {exp, fresh, endTime} =
+          stampExp
+            { ord = ord
+            , ctx = IdTable.empty
+            , startTime = startTime
+            }
+            shaped
+
+        val fullOrd = unions [ord, fresh]
+
+        val _ = print ("ORDER: " ^ StampGraph.toString fullOrd ^ "\n")
+        val _ = print ("START: " ^ Id.toString startTime ^ "\n")
+        val _ = print ("END:   " ^ Id.toString endTime ^ "\n")
+        val _ = print ("EXP:   " ^ toString exp ^ "\n")
+      in
+        exp
+      end
 
 end
