@@ -6,6 +6,9 @@ sig
   val insert: Key.t -> t -> t
   val remove: Key.t -> t -> t
   val member: Key.t -> t -> bool
+
+  val fromList: Key.t list -> t
+  val equal: t * t -> bool
 end =
 struct
 
@@ -24,5 +27,10 @@ struct
     case T.lookup x s of
       NONE => false
     | SOME _ => true
+
+  fun fromList ks =
+    List.foldr (fn (x, s) => insert x s) empty ks
+
+  fun equal (s1, s2) = T.equal (fn _ => true) (s1, s2)
 
 end

@@ -9,6 +9,8 @@ sig
   val keys: 'a t -> Key.t list
   val values: 'a t -> 'a list
 
+  val equal: ('a * 'a -> bool) -> 'a t * 'a t -> bool
+
   (* For debugging. Verify that the table is well-formed. *)
   val check: 'a t -> bool
 

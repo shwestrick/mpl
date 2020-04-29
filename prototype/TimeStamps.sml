@@ -38,7 +38,7 @@ struct
           parens (toString t1 ^ " -> " ^ toString t2)
           ^ "[" ^ Id.toString a1 ^ "," ^ Id.toString a2 ^ ","
           ^ StampGraph.toString ord ^ "]"
-          ^ "@" ^ Int.toString s
+          ^ "@" ^ Id.toString s
 
     fun equal x y =
       case (x, y) of
@@ -51,8 +51,14 @@ struct
           Id.eq (s, s')
           andalso List.length ts = List.length ts'
           andalso Util.allTrue (Util.zipWith equal ts ts')
-      | (Func (s, t1, t2), Func (s', t1', t2')) =>
-          Id.eq (s, s') andalso equal t1 t1' andalso equal t2 t2'
+      | (Func (s, (ord, a1, a2), t1, t2),
+         Func (s', (ord', a1', a2'), t1', t2')) =>
+          Id.eq (s, s') andalso
+          StampGraph.equal (ord, ord') andalso
+          Id.eq (a1, a1') andalso
+          Id.eq (a2, a2') andalso
+          equal t1 t1' andalso
+          equal t2 t2'
       | _ => false
 
 (*

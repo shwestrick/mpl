@@ -10,6 +10,7 @@ sig
   val vertices: t -> v list
   val edges: t -> e list
 
+  val equal: t * t -> bool
   val toString: t -> string
 
   val neighbors: v -> t -> v list
@@ -36,6 +37,10 @@ struct
   fun veq (u, v) = (Vertex.compare (u, v) = EQUAL)
 
   val empty = Table.empty
+
+  fun equal (g1, g2) =
+    Table.equal (fn (n1, n2) => Set.equal (Set.fromList n1, Set.fromList n2))
+    (g1, g2)
 
   fun toString g =
     Table.toString (fn vs => "[" ^ String.concatWith "," (List.map Vertex.toString vs) ^ "]") g

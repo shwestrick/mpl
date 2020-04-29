@@ -255,4 +255,14 @@ struct
 
   fun filter f t = filterk (fn (_, v) => f v) t
 
+  fun equal veq (t1, t2) =
+    case (t1, t2) of
+      (Leaf, Leaf) => true
+    | (Node d1, Node d2) =>
+        #size d1 = #size d2 andalso
+        Key.compare (#key d1, #key d2) = EQUAL andalso
+        veq (#value d1, #value d2) andalso
+        equal veq (#left d1, #left d2) andalso
+        equal veq (#right d1, #right d2)
+
 end
