@@ -3,13 +3,15 @@ sig
   val getTime: (unit -> 'a) -> ('a * Time.time)
   val hash64: Word64.word -> Word64.word
 
+  val even: int -> bool
+
   val pow2: int -> int
 
   (* this actually computes 1 + floor(log_2(n)), i.e. the number of
    * bits required to represent n in binary *)
   val log2: int -> int
 
-  (* boundPow2 n == smallest power of 2 that is less-or-equal-to n *)
+  (* boundPow2 n: smallest power of 2 that is >= n *)
   val boundPow2: int -> int
 
   val foreach: 'a ArraySlice.slice -> (int * 'a -> unit) -> unit
@@ -63,6 +65,8 @@ struct
 
   fun searchPow2 n m = if m >= n then m else searchPow2 n (2*m)
   fun boundPow2 n = searchPow2 n 1
+
+  fun even i = (Word8.andb (0w1, Word8.fromInt i) = 0w0)
 
   fun loop (lo, hi) b f =
     if lo >= hi then b else loop (lo+1, hi) (f (b, lo)) f

@@ -19,6 +19,14 @@ struct
 
   fun map f s = tabulate (fn i => f (nth s i)) (length s)
 
+  fun append (s, t) =
+    let
+      fun choose i =
+        if i < length s then nth s i else nth t (i - length s)
+    in
+      tabulate choose (length s + length t)
+    end
+
   fun scan f b s =
     let
       val n = AS.length s
