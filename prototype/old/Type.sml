@@ -64,7 +64,7 @@ struct
   fun liftType (ord, anchor0, anchor1) (typ, stamp) =
     let
       val stamp' =
-        if StampGraph.reachableFrom stamp anchor0 ord then
+        if StampGraph.isReachableFrom stamp anchor0 ord then
           stamp
         else
           anchor1
@@ -100,7 +100,7 @@ struct
         ( case IdTable.lookup v ctx of
             NONE => raise Fail ("T-Var: " ^ Id.toString v ^ " not in scope")
           | SOME (tau, delta) =>
-              if StampGraph.reachableFrom delta startTime ord then
+              if StampGraph.isReachableFrom delta startTime ord then
                 { fresh = StampGraph.empty
                 , endTime = startTime
                 , typ = tau

@@ -13,3 +13,4 @@ Group is
   ShapeTyping.sml
   DepthSubtyping.sml
   TimeStamps.sml
+  CheckTimeStamps.sml

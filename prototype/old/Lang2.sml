@@ -144,7 +144,7 @@ struct
               raise Fail ("Lang2.assignStamps Var: " ^ Id.toString v
                           ^ " not in scope")
           | SOME t =>
-              if StampGraph.reachableFrom (Typ.stampOf t) startTime ord then
+              if StampGraph.isReachableFrom (Typ.stampOf t) startTime ord then
                 { fresh = StampGraph.empty
                 , endTime = startTime
                 , exp = Var (t, v)
@@ -235,7 +235,7 @@ struct
           val t =
             case typOf ee' of
               Typ.Prod (s, t1, t2) =>
-                if StampGraph.reachableFrom (Typ.stampOf t1) s ord' then
+                if StampGraph.isReachableFrom (Typ.stampOf t1) s ord' then
                   t1
                 else
                   raise Fail ("Lang2.assignStamps Fst: cannot establish "
@@ -262,7 +262,7 @@ struct
           val t =
             case typOf ee' of
               Typ.Prod (s, t1, t2) =>
-                if StampGraph.reachableFrom (Typ.stampOf t2) s ord' then
+                if StampGraph.isReachableFrom (Typ.stampOf t2) s ord' then
                   t2
                 else
                   raise Fail ("Lang2.assignStamps Snd: cannot establish "

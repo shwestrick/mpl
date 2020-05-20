@@ -108,25 +108,25 @@ struct
   type typ = Typ.t
 
   datatype exp =
-    Var of typ * var
-  | Num of typ * int
-  | Ref of typ * exp
-  | Upd of typ * exp * exp
-  | Bang of typ * exp
-  | Array of typ * exp list
-  | Alloc of typ * exp
-  | AUpd of typ * exp * exp * exp
-  | ASub of typ * exp * exp
+    Var    of typ * var
+  | Num    of typ * int
+  | Ref    of typ * exp
+  | Upd    of typ * exp * exp
+  | Bang   of typ * exp
+  | Array  of typ * exp list
+  | Alloc  of typ * exp
+  | AUpd   of typ * exp * exp * exp
+  | ASub   of typ * exp * exp
   | Length of typ * exp
-  | Seq of typ * exp * exp
-  | App of typ * exp * exp
-  | Par of typ * exp list
-  | Tuple of typ * exp list
+  | Seq    of typ * exp * exp
+  | App    of typ * exp * exp
+  | Par    of typ * exp list
+  | Tuple  of typ * exp list
   | Select of typ * int * exp
-  | Let of typ * var * exp * exp
-  | Func of typ * var * var * exp
+  | Let    of typ * var * exp * exp
+  | Func   of typ * var * var * exp
   | IfZero of typ * exp * exp * exp
-  | Op of typ * string * (int * int -> int) * exp * exp
+  | Op     of typ * string * (int * int -> int) * exp * exp
 
   fun typOf e =
     case e of
