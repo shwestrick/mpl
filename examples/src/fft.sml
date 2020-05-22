@@ -64,7 +64,7 @@ fun dft (input: real Seq.t) =
 
 val numSamples = CommandLineArgs.parseInt "N" 1000000
 
-val sampleRate = 22000.0
+val sampleRate = 10000.0
 val fA  = 440.0
 val fCs = 550.0
 val fE  = 660.0
@@ -74,9 +74,18 @@ val duration = Real.fromInt numSamples / sampleRate
 fun sinusoid amp freq i =
   amp * Math.cos (2.0 * Math.pi * freq * (Real.fromInt i / sampleRate))
 
+fun hannWindow i =
+  let val s = Math.sin (Math.pi * Real.fromInt i / Real.fromInt numSamples)
+  in s * s
+  end
+
 val signal =
   Seq.tabulate
-    (fn i => sinusoid 0.75 fA i(* + sinusoid 0.5 fCs i + sinusoid 0.25 fE i*))
+    (fn i =>
+      hannWindow i * ( sinusoid 0.75 fA i (*
+                     + sinusoid 0.5 fCs i
+                     + sinusoid 0.25 fE i *)
+                     ))
     numSamples
 
 val _ = print ("fft " ^ Int.toString numSamples ^ "\n")
@@ -90,9 +99,22 @@ val _ = print ("finished in " ^ Time.fmt 4 (Time.- (t1, t0)) ^ "s\n")
 (* val _ = print ("result " ^ Int.toString result ^ "\n") *)
 
 (* frequency resolution *)
-val df = sampleRate / Real.fromInt numSamples
+(* val df = sampleRate / Real.fromInt numSamples
 val iA1 = Real.floor (fA / df)
 val iA2 = Real.ceil (fA / df)
 
 val _ = print (Real.toString (Complex.magnitude (Seq.nth result iA1)) ^ "\n")
-val _ = print (Real.toString (Complex.magnitude (Seq.nth result iA2)) ^ "\n")
+val _ = print (Real.toString (Complex.magnitude (Seq.nth result iA2)) ^ "\n") *)
+
+fun rtos x =
+  if x < 0.0 then "-" ^ rtos (~x) else Real.fmt (StringCvt.FIX (SOME 3)) x
+
+fun dump i =
+  if i >= Seq.length signal then
+    ()
+  else
+    (* (print (rtos (Seq.nth signal i) ^ "\n"); *)
+    (print (rtos (Complex.magnitude (Seq.nth result i)) ^ "\n");
+    dump (i+1))
+
+val _ = dump 0
