@@ -400,6 +400,9 @@ struct
     }
 
   fun checkTypExp (stuff: check_typ_input) (e: exp): unit =
+    ( print ("CHECKING " ^ toString e
+             ^ "\nORD" ^ StampGraph.toString (#ord stuff)
+             ^ "\nFRESHORD" ^ StampGraph.toString (#freshOrd stuff) ^ "\n\n");
     case e of
       Var x    => checkTypVar stuff x
     | Num x    => checkTypNum stuff x
@@ -420,6 +423,7 @@ struct
     | AUpd x   => checkTypAUpd stuff x
     | ASub x   => checkTypASub stuff x
     | Length x => checkTypLength stuff x
+    )
 
   and checkTypExpectVar stuff (e: exp) =
     case e of
@@ -431,18 +435,30 @@ struct
     case IdTable.lookup v ctx of
       NONE => raise Fail ("CTS.checkTypVar: unknown var " ^ Id.toString v)
     | SOME t' =>
-        if Typ.equal t t'
-           andalso Id.eq (startTime, endTime)
-           andalso StampGraph.isEmpty freshOrd
-        then ()
-        else raise Fail ("CTS.checkTypVar: type error")
+        ( if Typ.equal t t' then ()
+          else raise Fail ("CTS.checkTypVar: type mismatch")
+
+        ; if Id.eq (startTime, endTime) then ()
+          else raise Fail ("CTS.checkTypVar: start and end")
+
+        ; if StampGraph.equal (ord, unions [ord, freshOrd]) then ()
+          else raise Fail ("CTS.checkTypVar: expected no fresh ord")
+
+        ; ()
+        )
 
   and checkTypNum {ctx, ord, freshOrd} (t, startTime, endTime, n) =
-    if Typ.equal t (Typ.Num startTime)
-       andalso Id.eq (startTime, endTime)
-       andalso StampGraph.isEmpty freshOrd
-    then ()
-    else raise Fail ("CTS.checkTypNum: type error")
+    ( if Typ.equal t (Typ.Num startTime) then ()
+      else raise Fail ("CTS.checkTypNum: type mismatch")
+
+    ; if Id.eq (startTime, endTime) then ()
+      else raise Fail ("CTS.checkTypNum: allocating a num should not advance time")
+
+    ; if StampGraph.equal (ord, unions [ord, freshOrd]) then ()
+      else raise Fail ("CTS.checkTypNum: expected no fresh ord")
+
+    ; ()
+    )
 
   and checkTypApp input x =
     raise NYI
@@ -478,7 +494,7 @@ struct
       List.app (checkTypExpectVar stuff) children
     end
 
-  and checkTypSelect stuff (t, startTime, endTime, n, e) =
+  and checkTypSelect (stuff as {ord, freshOrd, ...}) (t, startTime, endTime, n, e) =
     let
       val expectedTyp =
         case typOf e of
@@ -488,11 +504,14 @@ struct
                raise Fail ("CTS.checkTypSelect: index out-of-bounds"))
         | _ => raise Fail ("CTS.checkTypSelect: expected product")
     in
-      if Typ.equal t expectedTyp
-         andalso Id.eq (startTime, endTime)
-         andalso StampGraph.isEmpty (#freshOrd stuff)
-      then ()
-      else raise Fail ("CTS.checkTypSelect: type error");
+      if Typ.equal t expectedTyp then ()
+      else raise Fail ("CTS.checkTypSelect: type mismatch");
+
+      if Id.eq (startTime, endTime) then ()
+      else raise Fail ("CTS.checkTypSelect: not same start and end");
+
+      if StampGraph.equal (ord, unions [ord, freshOrd]) then ()
+      else raise Fail ("CTS.checkTypSelect: expected no fresh ord");
 
       checkTypExpectVar stuff e
     end
@@ -580,21 +599,47 @@ struct
 
   (* ====================================================================== *)
 
-  (* fun OpAdd d (e1, e2) = Op (Typ.Num d, d, d, "+", op+, e1, e2)
-  fun OpSub d (e1, e2) = Op (Typ.Num d, d, d, "-", op-, e1, e2)
-  fun OpMul d (e1, e2) = Op (Typ.Num d, d, d, "*", op*, e1, e2)
-  fun OpDiv d (e1, e2) = Op (Typ.Num d, d, d, "/", fn (x, y) => x div y, e1, e2)
+  fun Num' d n = Num (Typ.Num d, d, d, n)
 
-  fun Fst t e = Select (1, e)
-  fun Snd t e = Select (2, e)
+  fun OpAdd d (v1, v2) = Op (Typ.Num d, d, d, "+", op +, v1, v2)
+  fun OpSub d (v1, v2) = Op (Typ.Num d, d, d, "-", op -, v1, v2)
+  fun OpMul d (v1, v2) = Op (Typ.Num d, d, d, "*", op *, v1, v2)
+  fun OpDiv d (v1, v2) = Op (Typ.Num d, d, d, "/", op div, v1, v2)
 
-  val parAdd: exp =
+  fun Fst t d v = Select (t, d, d, 1, v)
+  fun Snd t d v = Select (t, d, d, 2, v)
+
+  fun Let' (e: exp) (cont: (typ * Id.t) -> exp) =
     let
-      val left = OpAdd (Num 1, Num 2)
-      val right = OpAdd (Num 3, Num 4)
-      val x = Id.new "x"
+      val x = Id.new "xxx"
+      val ee = cont (typOf e, x)
     in
-      Let (x, Par [left, right], OpAdd (Select (1, Var x), Select (2, Var x)))
-    end *)
+      Let (typOf ee, startOf e, endOf ee, x, e, ee)
+    end
+
+  fun parAdd () =
+    let
+      fun addNums d c1 c2 =
+        Let' (Num' d c1) (fn (tn1, n1) =>
+        Let' (Num' d c2) (fn (tn2, n2) =>
+          OpAdd d (Var (tn1, d, d, n1), Var (tn2, d, d, n2))
+        ))
+      val [d0, d1, d2, d3] = List.tabulate (4, fn _ => Id.stamp ())
+
+      val e =
+        Let' (Par (Typ.Prod (d3, [Typ.Num d1, Typ.Num d2]), d0, d3,
+                [addNums d1 1 2, addNums d2 3 4])) (fn (tx, x) =>
+        Let' (Fst (Typ.Num d1) d3 (Var (tx, d3, d3, x))) (fn (tl, l) =>
+        Let' (Snd (Typ.Num d2) d3 (Var (tx, d3, d3, x))) (fn (tr, r) =>
+          OpAdd d3 (Var (tl, d3, d3, l),
+                    Var (tr, d3, d3, r)) )))
+
+      val ord = StampGraph.fromVertices [d0]
+      val freshOrd = StampGraph.fromEdges [(d0, d1), (d0, d2), (d1, d3), (d2, d3)]
+      val ctx = IdTable.empty
+    in
+      checkTypExp {ord=ord, freshOrd=freshOrd, ctx=ctx} e;
+      e
+    end
 
 end
