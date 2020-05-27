@@ -552,18 +552,21 @@ struct
         e2
     end
 
-  and checkTypOp stuff (t, startTime, endTime, _, _, e1, e2) =
-    ( if Typ.equal t (Typ.Num startTime)
-         andalso Id.eq (startTime, endTime)
-         andalso StampGraph.isEmpty (#freshOrd stuff)
-      then ()
-      else raise Fail ("CTS.checkTypNum: type error")
+  and checkTypOp (stuff as {ord, freshOrd, ...}) (t, startTime, endTime, _, _, e1, e2) =
+    ( if Typ.equal t (Typ.Num startTime) then ()
+      else raise Fail ("CTS.checkTypOp: type mismatch")
+
+    ; if Id.eq (startTime, endTime) then ()
+      else raise Fail ("CTS.checkTypOp: not same start and end")
+
+    ; if StampGraph.equal (ord, unions [ord, freshOrd]) then ()
+      else raise Fail ("CTS.checkTypOp: expected no fresh ord")
 
     ; case typOf e1 of Typ.Num _ => () | _ =>
-        raise Fail ("CTS.checkTypNum: type error on left operand")
+        raise Fail ("CTS.checkTypOp: type error on left operand")
 
     ; case typOf e2 of Typ.Num _ => () | _ =>
-        raise Fail ("CTS.checkTypNum: type error on right operand")
+        raise Fail ("CTS.checkTypOp: type error on right operand")
 
     ; checkTypExpectVar stuff e1
     ; checkTypExpectVar stuff e2
@@ -575,17 +578,95 @@ struct
   and checkTypFunc input (t, startTime, endTime, funcId, argId, body) =
     raise NYI
 
-  and checkTypRef input x =
-    raise NYI
+  and checkTypRef (stuff as {ctx, ord, freshOrd}) (t, startTime, endTime, e) =
+    let
+      val expectedTyp =
+        Typ.Ref (endTime, typOf e, typOf e)
+    in
+      if Typ.equal t expectedTyp then ()
+      else raise Fail ("CTS.checkTypRef: type mismatch");
 
-  and checkTypBang input x =
-    raise NYI
+      if Id.eq (startTime, endTime) then ()
+      else raise Fail ("CTS.checkTypRef: not same start and end");
 
-  and checkTypUpd input x =
-    raise NYI
+      if StampGraph.equal (ord, unions [ord, freshOrd]) then ()
+      else raise Fail ("CTS.checkTypRef: expected no fresh ord");
 
-  and checkTypSeq input x =
-    raise NYI
+      checkTypExpectVar stuff e
+    end
+
+  and checkTypBang (stuff as {ctx, ord, freshOrd}) (t, startTime, endTime, e) =
+    let
+      val expectedTyp =
+        case typOf e of
+          Typ.Ref (_, _, t) => t
+        | _ => raise Fail ("CTS.checkTypBang: expected ref")
+    in
+      if Typ.equal t expectedTyp then ()
+      else raise Fail ("CTS.checkTypBang: type mismatch");
+
+      if Id.eq (startTime, endTime) then ()
+      else raise Fail ("CTS.checkTypBang: not same start and end");
+
+      if StampGraph.equal (ord, unions [ord, freshOrd]) then ()
+      else raise Fail ("CTS.checkTypBang: expected no fresh ord");
+
+      checkTypExpectVar stuff e
+    end
+
+  and checkTypUpd (stuff as {ctx, ord, freshOrd}) (t, startTime, endTime, e1, e2) =
+    let
+      val expectedTyp =
+        case typOf e1 of
+          Typ.Ref (_, t, _) => t
+        | _ => raise Fail ("CTS.checkTypUpd: expected ref")
+    in
+      if Typ.equal t expectedTyp then ()
+      else raise Fail ("CTS.checkTypUpd: type mismatch");
+
+      if Typ.equal (typOf e2) t then ()
+      else raise Fail ("CTS.checkTypUpd: value type mismatch");
+
+      if Id.eq (startTime, endTime) then ()
+      else raise Fail ("CTS.checkTypUpd: not same start and end");
+
+      if StampGraph.equal (ord, unions [ord, freshOrd]) then ()
+      else raise Fail ("CTS.checkTypUpd: expected no fresh ord");
+
+      checkTypExpectVar stuff e1;
+      checkTypExpectVar stuff e2
+    end
+
+  and checkTypSeq {ctx, ord, freshOrd} (t, startTime, endTime, e1, e2) =
+    let
+      val mid = startOf e2
+      val pastMid =
+        StampGraph.removeVertex mid (StampGraph.reachableFrom mid freshOrd)
+      val T = StampGraph.transpose
+      val upToMid = T (StampGraph.reachableFrom mid (T freshOrd))
+    in
+      if Id.eq (endOf e1, startOf e2)
+      then ()
+      else raise Fail ("CTS.checkTypSeq: mid-point disagreement");
+
+      if Typ.equal t (typOf e2)
+      then ()
+      else raise Fail ("CTS.checkTypSeq: type error");
+
+      checkTypExp
+        { ctx = ctx
+        , ord = ord
+        , freshOrd = upToMid
+        }
+        e1;
+
+      checkTypExp
+        { ctx = ctx
+        , ord = unions [ord, upToMid]
+        , freshOrd = pastMid
+        }
+        e2
+    end
 
   and checkTypArray input x =
     raise NYI
@@ -604,6 +685,86 @@ struct
 
   (* ====================================================================== *)
 
+  (* Expressions that can be run anywhere because they take no time. *)
+  structure ExpAnywhere:
+  sig
+    type t = stamp -> exp
+    val num: int -> t
+    val var: (typ * var) -> t
+    val opAdd: t * t -> t
+    val fst: t -> t
+    val snd: t -> t
+    val lett: t -> (t -> t) -> t
+    val seq: (t * t) -> t
+    val upd: (t * t) -> t
+    val bang: t -> t
+    val reff: t -> t
+  end =
+  struct
+    type t = stamp -> exp
+
+    fun num n d = Num (Typ.Num d, d, d, n)
+    fun var (t, x) d = Var (t, d, d, x)
+    fun opAdd (e1, e2) d = Op (Typ.Num d, d, d, "+", op +, e1 d, e2 d)
+    fun select n e d =
+      let
+        val ee = e d
+        val t =
+          case typOf ee of
+            Typ.Prod (_, ts) => List.nth (ts, n-1)
+          | _ => raise Fail ("exp anywhere fst")
+      in
+        Select (t, d, d, n, ee)
+      end
+    fun fst e d = select 1 e d
+    fun snd e d = select 2 e d
+
+    fun lett e1 e2 d =
+      let
+        val x = Id.new "xxx"
+        val ee1 = e1 d
+        val ee2 = e2 (var (typOf ee1, x)) d
+      in
+        Let (typOf ee2, d, d, x, ee1, ee2)
+      end
+
+    fun seq (e1, e2) d =
+      let
+        val ee1 = e1 d
+        val ee2 = e2 d
+      in
+        Seq (typOf ee2, d, d, ee1, ee2)
+      end
+
+    fun upd (e1, e2) d =
+      let
+        val ee1 = e1 d
+        val ee2 = e2 d
+      in
+        Upd (typOf ee2, d, d, ee1, ee2)
+      end
+
+    fun bang e d =
+      let
+        val ee = e d
+        val t =
+          case typOf ee of
+            Typ.Ref (_, _, t) => t
+          | _ => raise Fail ("whoopse bang")
+      in
+        Bang (t, d, d, ee)
+      end
+
+    fun reff e d =
+      let
+        val ee = e d
+      in
+        Ref (Typ.Ref (d, typOf ee, typOf ee), d, d, ee)
+      end
+  end
+
+  structure E = ExpAnywhere
+
   fun Num' d n = Num (Typ.Num d, d, d, n)
 
   fun OpAdd d (v1, v2) = Op (Typ.Num d, d, d, "+", op +, v1, v2)
@@ -614,7 +775,7 @@ struct
   fun Fst t d v = Select (t, d, d, 1, v)
   fun Snd t d v = Select (t, d, d, 2, v)
 
-  fun Let' (e: exp) (cont: (typ * Id.t) -> exp) =
+  fun Lett (e: exp) (cont: (typ * var) -> exp) =
     let
       val x = Id.new "xxx"
       val ee = cont (typOf e, x)
@@ -624,20 +785,52 @@ struct
 
   fun parAdd () =
     let
-      fun addNums d c1 c2 =
-        Let' (Num' d c1) (fn (tn1, n1) =>
-        Let' (Num' d c2) (fn (tn2, n2) =>
-          OpAdd d (Var (tn1, d, d, n1), Var (tn2, d, d, n2))
-        ))
+      fun addNums c1 c2 =
+        E.lett (E.num c1) (fn n1 =>
+        E.lett (E.num c2) (fn n2 =>
+          E.opAdd (n1, n2)))
+
       val [d0, d1, d2, d3] = List.tabulate (4, fn _ => Id.stamp ())
 
       val e =
-        Let' (Par (Typ.Prod (d3, [Typ.Num d1, Typ.Num d2]), d0, d3,
-                [addNums d1 1 2, addNums d2 3 4])) (fn (tx, x) =>
-        Let' (Fst (Typ.Num d1) d3 (Var (tx, d3, d3, x))) (fn (tl, l) =>
-        Let' (Snd (Typ.Num d2) d3 (Var (tx, d3, d3, x))) (fn (tr, r) =>
-          OpAdd d3 (Var (tl, d3, d3, l),
-                    Var (tr, d3, d3, r)) )))
+        Lett (Par (Typ.Prod (d3, [Typ.Num d1, Typ.Num d2]), d0, d3,
+                [addNums 1 2 d1, addNums 3 4 d2])) (fn x =>
+        Lett (E.fst (E.var x) d3) (fn l =>
+        Lett (E.snd (E.var x) d3) (fn r =>
+          E.opAdd (E.var l, E.var r) d3)))
+
+      val ord = StampGraph.fromVertices [d0]
+      val freshOrd = StampGraph.fromEdges [(d0, d1), (d0, d2), (d1, d3), (d2, d3)]
+      val ctx = IdTable.empty
+    in
+      checkTypExp {ord=ord, freshOrd=freshOrd, ctx=ctx} e;
+      e
+    end
+
+  fun parAddAccumulate () =
+    let
+      fun pushAdd r c =
+        E.lett (E.num c) (fn n =>
+        E.lett (E.bang r) (fn curr =>
+        E.lett (E.opAdd (n, curr)) (fn next =>
+          E.upd (r, next))))
+
+      fun addNums c1 c2 =
+        E.lett (E.num 0) (fn z =>
+        E.lett (E.reff z) (fn r =>
+        E.seq (pushAdd r c1,
+        E.seq (pushAdd r c2,
+        E.lett (E.bang r) (fn n =>
+          n)))))
+
+      val [d0, d1, d2, d3] = List.tabulate (4, fn _ => Id.stamp ())
+
+      val e =
+        Lett (Par (Typ.Prod (d3, [Typ.Num d1, Typ.Num d2]), d0, d3,
+                [addNums 1 2 d1, addNums 3 4 d2])) (fn x =>
+        Lett (E.fst (E.var x) d3) (fn l =>
+        Lett (E.snd (E.var x) d3) (fn r =>
+          E.opAdd (E.var l, E.var r) d3)))
 
       val ord = StampGraph.fromVertices [d0]
       val freshOrd = StampGraph.fromEdges [(d0, d1), (d0, d2), (d1, d3), (d2, d3)]
