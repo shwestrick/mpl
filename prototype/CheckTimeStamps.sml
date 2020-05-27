@@ -393,6 +393,11 @@ struct
 
   exception NYI (* not yet implemented *)
 
+  (* freshOrd is the "new" stuff; i.e. the judgement that has
+   *   DELTA / DELTA'; GAMMA |- ...
+   * can be expressed here with ord=DELTA and any freshOrd such that
+   * (ord union freshOrd) = DELTA'
+   *)
   type check_typ_input =
     { ord: StampGraph.t
     , freshOrd: StampGraph.t
