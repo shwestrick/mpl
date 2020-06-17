@@ -61,6 +61,53 @@ struct
           equal t2 t2'
       | _ => false
 
+    (* TODO: trying to implement forall a in rho; but what does this
+     * actually mean. *)
+    fun allStampsOf t =
+      case t of
+        Num s => IdSet.fromList [s]
+      | Ref (s, t1, t2) =>
+          IdSet.insert s (IdSet.union (allStampsOf t1, allStampsOf t2))
+      | Array (s, t1, t2) =>
+          IdSet.insert s (IdSet.union (allStampsOf t1, allStampsOf t2))
+      | Prod (s, ts) =>
+          IdSet.insert s (List.foldl IdSet.union IdSet.empty (List.map allStampsOf ts))
+      | Func (s, _, _, _) =>
+          IdSet.fromList [s] (* ???? *)
+
+    fun stampOf t =
+      case t of
+        Num s => s
+      | Ref (s, _, _) => s
+      | Array (s, _, _) => s
+      | Prod (s, _, _) => s
+      | Func (s, _, _, _) => s
+
+    fun adj (delta, delta0, delta'', start, stop) typ =
+      let
+        val s = stampOf typ
+        val (s, start, stop) =
+          if StampGraph.containsVertex s delta then
+            (s, start, stop)
+          else if StampGraph.containsVertex s delta0 then
+            (start, Id.stampBot, start)
+          else if StampGraph.containsVertex s delta'' then
+            (stop, start, stop)
+          else
+            raise Fail ("CTS.Typ.adj: stamp outside orders")
+      in
+        case typ of
+          Num _ => Num s
+        | Func (_, ord, t1, t2) => Func (s, ord, t1, t2)
+        | Prod (_, ts) =>
+            Prod (s, List.map (adj (delta, delta0, delta'', start, stop)) ts)
+        | Ref (_, t1, t2) =>
+            Ref (s, adj (delta, delta0, delta'', stop, start) t1, (* contravariant *)
+                    adj (delta, delta0, delta'', start, stop) t2)
+        | Array (_, t1, t2) =>
+            Array (s, adj (delta, delta0, delta'', stop, start) t1, (* contravariant *)
+                      adj (delta, delta0, delta'', start, stop) t2)
+      end
   end
 
   type typ = Typ.t
@@ -82,7 +129,8 @@ struct
   | Tuple  of typ * stamp * stamp * exp list
   | Select of typ * stamp * stamp * int * exp
   | Let    of typ * stamp * stamp * var * exp * exp
-  | Func   of typ * stamp * stamp * var * var * exp
+  (* functions come with the delta'' that is needed to check their body *)
+  | Func   of typ * stamp * stamp * StampGraph.t * var * var * exp
   | IfZero of typ * stamp * stamp * exp * exp * exp
   | Op     of typ * stamp * stamp * string * (int * int -> int) * exp * exp
 
@@ -575,8 +623,32 @@ struct
   and checkTypIfZero input x =
     raise NYI
 
-  and checkTypFunc input (t, startTime, endTime, funcId, argId, body) =
-    raise NYI
+  and checkTypFunc
+        (stuff as {ord, freshOrd, ...})
+        (t, startTime, endTime, internalFreshOrd, funcId, argId, body) =
+    let
+      (* pull out the type info
+       * the contractOrd is the Delta in the paper:
+       *   this is the function's contract with the caller
+       * the function body interval is [internalStart, internalEnd]
+       * *)
+      val ((contractOrd, internalStart, internalEnd), t1, t2) =
+        case t of
+          Typ.Func (_, ordstuff, t1, t2) => (ordstuff, t1, t2)
+
+      (* What is the fresh stuff of the body of the function?? I can't
+       * calculate that here. Perhaps we can typecheck by returning the
+       * "fresh ord" as a result of typechecking?
+       *)
+    in
+      if Id.eq (startTime, endTime) then ()
+      else raise Fail ("CTS.checkTypFunc: not same start and end");
+
+      if StampGraph.equal (ord, unions [ord, freshOrd]) then ()
+      else raise Fail ("CTS.checkTypFunc: expected no fresh ord");
+
+      StampGraph.isReachableFrom a internalStart contractOrd
+    end
 
   and checkTypRef (stuff as {ctx, ord, freshOrd}) (t, startTime, endTime, e) =
     let

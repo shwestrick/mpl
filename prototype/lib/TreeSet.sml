@@ -6,6 +6,7 @@ sig
   val insert: Key.t -> t -> t
   val remove: Key.t -> t -> t
   val member: Key.t -> t -> bool
+  val union: t * t -> t
 
   val fromList: Key.t list -> t
   val equal: t * t -> bool
@@ -32,5 +33,7 @@ struct
     List.foldr (fn (x, s) => insert x s) empty ks
 
   fun equal (s1, s2) = T.equal (fn _ => true) (s1, s2)
+
+  fun union (s1, s2) = T.union (s1, s2)
 
 end

@@ -12,6 +12,8 @@ sig
   val var: unit -> t
   val stamp: unit -> t
   val stampVar: unit -> t
+
+  val stampBot: t
 end =
 struct
   type t = string * int
@@ -39,4 +41,6 @@ struct
   fun var () = new "x"
   fun stamp () = new "d"
   fun stampVar () = new "a"
+
+  val stampBot = new "INITIAL"
 end
