@@ -71,6 +71,8 @@ struct GC_controls {
   enum GC_CollectionType collectionType;
   /* Size of the trace buffer */
   size_t traceBufferSize;
+
+  bool simForceCoherence;
 };
 
 #endif /* (defined (MLTON_GC_INTERNAL_TYPES)) */

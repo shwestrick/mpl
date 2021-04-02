@@ -17,6 +17,26 @@
 /************************/
 #if (defined (MLTON_GC_INTERNAL_BASIS))
 
+void GC_HH_flushCache() {
+  GC_state s = pthread_getspecific(gcstate_key);
+  GC_thread thread = getThreadCurrent(s);
+
+  HM_chunkList list = HM_HH_getChunkList(thread->hierarchicalHeap);
+
+  for (HM_chunk chunk = HM_getChunkListFirstChunk(list);
+       chunk != NULL;
+       chunk = chunk->nextChunk)
+  {
+    if (!s->controls->simForceCoherence) {
+      void* start = HM_getChunkStart(chunk);
+      void* stop = HM_getChunkLimit(chunk);
+      __builtin___clear_cache(start, stop);
+      SimRemoveIncoherentRegion((uintptr_t)(start), (uintptr_t)(stop));
+    }
+  }
+}
+
+
 Word32 GC_HH_getDepth(pointer threadp) {
   GC_state s = pthread_getspecific(gcstate_key);
   GC_thread thread = threadObjptrToStruct(s, pointerToObjptr(threadp, NULL));

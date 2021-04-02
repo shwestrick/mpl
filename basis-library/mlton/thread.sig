@@ -69,6 +69,8 @@ signature MLTON_THREAD =
 
           (* "put a new thread in the hierarchy *)
           val moveNewThreadToDepth : thread * int -> unit
+
+          val flushCache: unit -> unit
         end
 
       type 'a t

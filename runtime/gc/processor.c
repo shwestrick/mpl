@@ -18,6 +18,8 @@ int32_t Proc_processorNumber (GC_state s) {
 }
 
 void Proc_waitForInitialization (GC_state s) {
+  SimResetHopCount();
+
   size_t pcounter = 0;
   while (!Proc_beginInit) {
     GC_MayTerminateThreadRarely(s, &pcounter);
@@ -28,13 +30,19 @@ void Proc_waitForInitialization (GC_state s) {
   while (!Proc_isInitialized (s)) {
     GC_MayTerminateThreadRarely(s, &pcounter);
   }
+
+  SimRoiStart();
 }
 
 void Proc_signalInitialization (GC_state s) {
+  SimResetHopCount();
+
   Proc_initializedCount = 1;
   Proc_beginInit = TRUE;
 
   while (!Proc_isInitialized (s)) { }
+
+  SimRoiStart();
 }
 
 bool Proc_isInitialized (GC_state s) {

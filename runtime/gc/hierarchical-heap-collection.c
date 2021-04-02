@@ -69,6 +69,8 @@ bool skipStackAndThreadObjptrPredicate(GC_state s,
 
 
 void HM_HHC_collectLocal(uint32_t desiredScope) {
+  GC_HH_flushCache();
+
   GC_state s = pthread_getspecific(gcstate_key);
   GC_thread thread = getThreadCurrent(s);
   struct HM_HierarchicalHeap* hh = thread->hierarchicalHeap;

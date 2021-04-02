@@ -426,6 +426,8 @@ structure Thread =
       val mergeThreads = _import "GC_HH_mergeThreads" runtime private: thread * thread -> unit;
       val promoteChunks = _import "GC_HH_promoteChunks" runtime private: thread -> unit;
       val moveNewThreadToDepth = _import "GC_HH_moveNewThreadToDepth" runtime private: thread * Word32.word -> unit;
+
+      val flushCache = _import "GC_HH_flushCache" runtime private: unit -> unit;
    end
 
 structure Weak =

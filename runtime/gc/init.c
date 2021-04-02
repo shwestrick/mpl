@@ -205,6 +205,9 @@ int processAtMLton (GC_state s, int start, int argc, char **argv,
           if (i == argc || 0 == strcmp (argv[i], "--"))
             die ("%s ram-slop missing argument.", atName);
           s->controls->ratios.ramSlop = stringToFloat (argv[i++]);
+        } else if (0 == strcmp (arg, "sim-force-coherence")) {
+          i++;
+          s->controls->simForceCoherence = TRUE;
         } else if (0 == strcmp (arg, "show-sources")) {
           showSources (s);
           exit (0);
@@ -439,6 +442,8 @@ int GC_init (GC_state s, int argc, char **argv) {
   s->controls->allocChunkSize = 0;
 
   s->controls->freeListCoalesce = FALSE;
+
+  s->controls->simForceCoherence = FALSE;
 
   s->globalCumulativeStatistics = newGlobalCumulativeStatistics();
   s->cumulativeStatistics = newCumulativeStatistics();

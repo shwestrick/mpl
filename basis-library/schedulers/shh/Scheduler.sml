@@ -213,6 +213,8 @@ struct
     (* Must be called from a "user" thread, which has an associated HH *)
     fun parfork thread depth (f : unit -> 'a, g : unit -> 'b) =
       let
+        val _ = HH.flushCache ()
+
         val rightSide = ref (NONE : ('b result * Thread.t) option)
         val incounter = ref 2
         fun g' () =
@@ -221,6 +223,7 @@ struct
             val t = Thread.current ()
           in
             rightSide := SOME (gr, t);
+            HH.flushCache ();
             if decrementHitsZero incounter then
               ( setQueueDepth (myWorkerId ()) (depth+1)
               ; threadSwitch thread
@@ -267,6 +270,7 @@ struct
         (extractResult fr, extractResult gr)
       end
 
+(*
     fun forkGC (f : unit -> 'a, g : unit -> 'b) =
       let
         val thread = Thread.current ()
@@ -308,6 +312,7 @@ struct
       in
         fr
       end
+*)
 
     and fork (f, g) =
       let
@@ -315,9 +320,9 @@ struct
         val depth = HH.getDepth thread
       in
         (* don't let us hit an error, just sequentialize instead *)
-        if depth = 1 then
+        (*if depth = 1 then
           forkGC(f, g)
-        else if depth < Queue.capacity then
+        else*) if depth < Queue.capacity then
           parfork thread depth (f, g)
         else
           (f (), g ())

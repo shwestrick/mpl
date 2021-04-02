@@ -10,6 +10,8 @@
 #ifndef _MLTON_GC_H_
 #define _MLTON_GC_H_
 
+#include "sim_api.h"
+
 #include "platform.h"
 
 struct GC_state;

@@ -340,6 +340,12 @@ bool HM_HH_extend(GC_state s, GC_thread thread, size_t bytesRequested)
     return FALSE;
   }
 
+  if (!s->controls->simForceCoherence) {
+    pointer start = HM_getChunkStart(chunk);
+    pointer stop = HM_getChunkLimit(chunk);
+    SimAddIncoherentRegion((uintptr_t)(start), (uintptr_t)(stop));
+  }
+
   chunk->levelHead = HM_HH_getUFNode(hh);
 
   thread->currentChunk = chunk;
@@ -495,6 +501,7 @@ pointer HM_HH_getRoot(ARG_USED_FOR_ASSERT pointer threadp) {
 // 3. CC_COLLECTING: The collector sets this value to ccstate when it starts collecting using cas.
 //                   After its finished, the flag is set to CC_UNREG indicating that a new root set is needed.
 void HM_HH_registerCont(pointer kl, pointer kr, pointer k, pointer threadp) {
+  return;
   GC_state s = pthread_getspecific(gcstate_key);
   GC_thread thread = threadObjptrToStruct(s, pointerToObjptr(threadp, NULL));
 
