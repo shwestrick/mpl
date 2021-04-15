@@ -32,6 +32,7 @@ void Proc_waitForInitialization (GC_state s) {
   }
 
   SimRoiStart();
+  s->cumulativeStatistics->tsc_start = rdtsc();
 }
 
 void Proc_signalInitialization (GC_state s) {
@@ -43,6 +44,7 @@ void Proc_signalInitialization (GC_state s) {
   while (!Proc_isInitialized (s)) { }
 
   SimRoiStart();
+  s->cumulativeStatistics->tsc_start = rdtsc();
 }
 
 bool Proc_isInitialized (GC_state s) {

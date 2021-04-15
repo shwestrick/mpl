@@ -94,4 +94,6 @@ bool GC_TryToTerminate(GC_state s) {
 PRIVATE void GC_PthreadAtExit(GC_state s) {
   getStackCurrent(s)->used = sizeofGCStateCurrentStackUsed (s);
   getThreadCurrent(s)->exnStack = s->exnStack;
+  s->cumulativeStatistics->tsc_stop = rdtsc();
+  s->cumulativeStatistics->sim_num_hops = SimGetHopCount();
 }

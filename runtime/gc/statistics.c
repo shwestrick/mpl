@@ -23,6 +23,12 @@ void outputSyncStatisticsJSON(FILE* out,
 /* Function Definitions */
 /************************/
 
+unsigned long long rdtsc() {
+    unsigned long long lo,hi;
+    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
+    return ((unsigned long long)hi << 32) | lo;
+}
+
 struct GC_globalCumulativeStatistics* newGlobalCumulativeStatistics(void) {
   struct GC_globalCumulativeStatistics* stats;
 
@@ -69,6 +75,10 @@ struct GC_cumulativeStatistics *newCumulativeStatistics(void) {
   cumulativeStatistics->numHHLocalGCs = 0;
   cumulativeStatistics->numRootCCs = 0;
   cumulativeStatistics->numInternalCCs = 0;
+
+  cumulativeStatistics->tsc_start = 0;
+  cumulativeStatistics->tsc_stop = 0;
+  cumulativeStatistics->sim_num_hops = 0;
 
   cumulativeStatistics->timeLocalGC.tv_sec = 0;
   cumulativeStatistics->timeLocalGC.tv_nsec = 0;

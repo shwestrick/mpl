@@ -66,6 +66,10 @@ struct GC_cumulativeStatistics {
   uintmax_t numRootCCs;
   uintmax_t numInternalCCs;
 
+  unsigned long long tsc_start;
+  unsigned long long tsc_stop;
+  uint64_t sim_num_hops;
+
   struct timespec timeLocalGC;
   struct timespec timeLocalPromo;
 
@@ -98,6 +102,8 @@ struct GC_lastMajorStatistics {
 struct GC_globalCumulativeStatistics* newGlobalCumulativeStatistics(void);
 struct GC_cumulativeStatistics* newCumulativeStatistics(void);
 struct GC_lastMajorStatistics* newLastMajorStatistics(void);
+
+unsigned long long rdtsc(void);
 
 void S_outputCumulativeStatisticsJSON(
     FILE* out, struct GC_cumulativeStatistics* statistics);
