@@ -149,9 +149,9 @@ int processAtMLton (GC_state s, int start, int argc, char **argv,
                  atName,
                  format);
           }
-        } else if (0 == strcmp (arg, "set-affinity")) {
+        } else if (0 == strcmp (arg, "no-set-affinity")) {
           i++;
-          s->controls->setAffinity = TRUE;
+          s->controls->setAffinity = FALSE;
         } else if (0 == strcmp (arg, "affinity-base")) {
           i++;
           if (i == argc || (0 == strcmp (argv[i], "--")))
@@ -409,7 +409,7 @@ int GC_init (GC_state s, int argc, char **argv) {
   s->controls->mayLoadWorld = FALSE; /* incompatible with mpl runtime */
   s->controls->mayProcessAtMLton = TRUE;
   s->controls->messages = FALSE;
-  s->controls->setAffinity = FALSE;
+  s->controls->setAffinity = TRUE;
   s->controls->affinityBase = 0;
   s->controls->affinityStride = 1;
   s->controls->ratios.ramSlop = 0.5f;

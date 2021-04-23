@@ -74,12 +74,13 @@ void MLton_threadFunc (void* arg) {                                     \
   GC_state s = (GC_state)arg;                                           \
                                                                         \
                                                                         \
-  /* Do not set CPU affinity when running on a single processor  */     \
-  uint32_t num =                                                        \
-    Proc_processorNumber (s)                                            \
-    * s->controls->affinityStride                                       \
-    + s->controls->affinityBase;                                        \
-  set_cpu_affinity(num);                                                \
+  if (s->controls->setAffinity) {                                       \
+    uint32_t num =                                                      \
+      Proc_processorNumber (s)                                          \
+      * s->controls->affinityStride                                     \
+      + s->controls->affinityBase;                                      \
+    set_cpu_affinity(num);                                              \
+  }                                                                     \
                                                                         \
   /* Save our state locally */                                          \
   if (s->procNumber != 0) {                                             \
