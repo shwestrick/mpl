@@ -59,6 +59,8 @@ void GC_MayTerminateThreadRarely(GC_state s, size_t *pcounter) {
 
 bool GC_TryToTerminate(GC_state s) {
   Trace0(EVENT_HALT_REQ);
+  fprintf(stderr, "proc %d: beginning termination...\n", (int)s->procNumber);
+  fflush(stderr);
 
   /* We can always terminate immediately when there is a single processor. */
   if (s->procStates == NULL)
@@ -79,6 +81,9 @@ bool GC_TryToTerminate(GC_state s) {
       s->procStates[p].limit = 0;
 
   Trace0(EVENT_HALT_WAIT);
+  
+  fprintf(stderr, "proc %d: waiting for others to finish...\n", (int)s->procNumber);
+  fflush(stderr);
 
   /* Wait for the other processors to terminate. */
   for (uint32_t p = 0; p < s->numberOfProcs; p++)
@@ -87,6 +92,9 @@ bool GC_TryToTerminate(GC_state s) {
         perror("pthread_join");
         exit(1);
       }
+  
+  fprintf(stderr, "proc %d: all others have finished. ready to terminate.\n", (int)s->procNumber);
+  fflush(stderr);
 
   return true;
 }
