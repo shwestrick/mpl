@@ -148,5 +148,15 @@
 #define SimResetHopCount()                                      SimMagic0(SIM_CMD_RESET_HOP_COUNT)
 #define SimGetHopCount()                                        SimMagic0(SIM_CMD_GET_HOP_COUNT)
 
+#define setAffinity(cpuid) ({ \
+  cpu_set_t _cpuset; \
+  CPU_ZERO(&_cpuset); \
+  CPU_SET(cpuid, &_cpuset); \
+  pthread_t current_thread = pthread_self();  \
+  if(pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &_cpuset)){  \
+    fprintf(stderr, "Couldn't bin worker thread to logical core %d\n", cpuid); \
+    exit(EXIT_FAILURE); } \
+  _cpuset; \
+  }) 
 
 #endif /* __SIM_API */

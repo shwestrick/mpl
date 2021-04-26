@@ -79,7 +79,7 @@ void MLton_threadFunc (void* arg) {                                     \
       Proc_processorNumber (s)                                          \
       * s->controls->affinityStride                                     \
       + s->controls->affinityBase;                                      \
-    set_cpu_affinity(num);                                              \
+    setAffinity(num);                                                   \
   }                                                                     \
                                                                         \
   /* Save our state locally */                                          \
