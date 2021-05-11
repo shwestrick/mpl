@@ -73,13 +73,10 @@ void MLton_threadFunc (void* arg) {                                     \
   uintptr_t nextBlock;                                                  \
   GC_state s = (GC_state)arg;                                           \
                                                                         \
-                                                                        \
-  if (s->controls->setAffinity) {                                       \
-    uint32_t num =                                                      \
-      Proc_processorNumber (s)                                          \
-      * s->controls->affinityStride                                     \
-      + s->controls->affinityBase;                                      \
-    setAffinity(num);                                                   \
+  if (s->controls->setAffinity && s->procNumber == 0) {                 \
+    fprintf(stderr,                                                     \
+      "[WARN] ignoring proc affinity; "                                 \
+      "should be handled by simulator\n");                              \
   }                                                                     \
                                                                         \
   /* Save our state locally */                                          \

@@ -219,7 +219,8 @@ void GC_done(GC_state s) {
 
   for (uint32_t proc = 0; proc < s->numberOfProcs; proc++) {
     uint64_t num_hops = s->procStates[proc].cumulativeStatistics->sim_num_hops;
-    fprintf(stderr, "lCPUID%u: num hops: %zu\n", proc, num_hops);
+    printHops(proc, num_hops);
+    //fprintf(stderr, "lCPUID%u: num hops: %zu\n", proc, num_hops);
   }
 
   for (uint32_t proc = 0; proc < s->numberOfProcs; proc++) {
