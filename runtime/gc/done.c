@@ -228,10 +228,11 @@ void GC_done(GC_state s) {
     start = s->procStates[proc].cumulativeStatistics->tsc_start;
     stop = s->procStates[proc].cumulativeStatistics->tsc_stop;
     unsigned long long diff = (stop > start ? stop - start : 0);
-    fprintf(stderr,
-      "lCPUID%u: Cycles: %llu // rdtsc\n",
-      proc,
-      diff);
+    printTime(proc, (double)diff);
+    //fprintf(stderr,
+    //  "lCPUID%u: Cycles: %llu // rdtsc\n",
+    //  proc,
+    //  diff);
   }
 
   if (s->controls->summary) {
