@@ -58,6 +58,8 @@ void GC_MayTerminateThreadRarely(GC_state s, size_t *pcounter) {
 }
 
 bool GC_TryToTerminate(GC_state s) {
+  GC_PthreadAtExit(s);
+
   Trace0(EVENT_HALT_REQ);
   fprintf(stderr, "proc %d: beginning termination...\n", (int)s->procNumber);
   fflush(stderr);
@@ -81,7 +83,7 @@ bool GC_TryToTerminate(GC_state s) {
       s->procStates[p].limit = 0;
 
   Trace0(EVENT_HALT_WAIT);
-  
+
   fprintf(stderr, "proc %d: waiting for others to finish...\n", (int)s->procNumber);
   fflush(stderr);
 
@@ -92,7 +94,7 @@ bool GC_TryToTerminate(GC_state s) {
         perror("pthread_join");
         exit(1);
       }
-  
+
   fprintf(stderr, "proc %d: all others have finished. ready to terminate.\n", (int)s->procNumber);
   fflush(stderr);
 
@@ -104,4 +106,11 @@ PRIVATE void GC_PthreadAtExit(GC_state s) {
   getThreadCurrent(s)->exnStack = s->exnStack;
   s->cumulativeStatistics->tsc_stop = rdtsc();
   s->cumulativeStatistics->sim_num_hops = SimGetHopCount();
+
+  unsigned long long start, stop;
+  start = s->cumulativeStatistics->tsc_start;
+  stop = s->cumulativeStatistics->tsc_stop;
+  unsigned long long diff = (stop > start ? stop - start : 0);
+  printTime(Proc_processorNumber(s), (double)diff);
+  printHops(Proc_processorNumber(s), s->cumulativeStatistics->sim_num_hops);
 }

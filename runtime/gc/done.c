@@ -215,25 +215,25 @@ static void displayCumulativeStatisticsJSON (FILE *out, GC_state s) {
 }
 
 void GC_done(GC_state s) {
-  GC_PthreadAtExit(s);
+  // GC_PthreadAtExit(s);
 
-  for (uint32_t proc = 0; proc < s->numberOfProcs; proc++) {
-    uint64_t num_hops = s->procStates[proc].cumulativeStatistics->sim_num_hops;
-    printHops(proc, num_hops);
-    //fprintf(stderr, "lCPUID%u: num hops: %zu\n", proc, num_hops);
-  }
+  // for (uint32_t proc = 0; proc < s->numberOfProcs; proc++) {
+  //   uint64_t num_hops = s->procStates[proc].cumulativeStatistics->sim_num_hops;
+  //   printHops(proc, num_hops);
+  //   //fprintf(stderr, "lCPUID%u: num hops: %zu\n", proc, num_hops);
+  // }
 
-  for (uint32_t proc = 0; proc < s->numberOfProcs; proc++) {
-    unsigned long long start, stop;
-    start = s->procStates[proc].cumulativeStatistics->tsc_start;
-    stop = s->procStates[proc].cumulativeStatistics->tsc_stop;
-    unsigned long long diff = (stop > start ? stop - start : 0);
-    printTime(proc, (double)diff);
-    //fprintf(stderr,
-    //  "lCPUID%u: Cycles: %llu // rdtsc\n",
-    //  proc,
-    //  diff);
-  }
+  // for (uint32_t proc = 0; proc < s->numberOfProcs; proc++) {
+  //   unsigned long long start, stop;
+  //   start = s->procStates[proc].cumulativeStatistics->tsc_start;
+  //   stop = s->procStates[proc].cumulativeStatistics->tsc_stop;
+  //   unsigned long long diff = (stop > start ? stop - start : 0);
+  //   printTime(proc, (double)diff);
+  //   //fprintf(stderr,
+  //   //  "lCPUID%u: Cycles: %llu // rdtsc\n",
+  //   //  proc,
+  //   //  diff);
+  // }
 
   if (s->controls->summary) {
     if (HUMAN == s->controls->summaryFormat) {
