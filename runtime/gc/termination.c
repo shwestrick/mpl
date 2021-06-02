@@ -107,6 +107,8 @@ PRIVATE void GC_PthreadAtExit(GC_state s) {
   s->cumulativeStatistics->tsc_stop = rdtsc();
   s->cumulativeStatistics->sim_num_hops = SimGetHopCount();
 
+  SimRoiEnd();
+
   unsigned long long start, stop;
   start = s->cumulativeStatistics->tsc_start;
   stop = s->cumulativeStatistics->tsc_stop;
