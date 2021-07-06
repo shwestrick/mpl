@@ -113,6 +113,6 @@ PRIVATE void GC_PthreadAtExit(GC_state s) {
   start = s->cumulativeStatistics->tsc_start;
   stop = s->cumulativeStatistics->tsc_stop;
   unsigned long long diff = (stop > start ? stop - start : 0);
-  printTime(Proc_processorNumber(s), (double)diff);
-  printHops(Proc_processorNumber(s), s->cumulativeStatistics->sim_num_hops);
+  //printTime(Proc_processorNumber(s), (double)diff);
+  //printHops(Proc_processorNumber(s), s->cumulativeStatistics->sim_num_hops);
 }
