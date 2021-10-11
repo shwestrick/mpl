@@ -164,13 +164,28 @@ void HM_HHC_collectLocal(uint32_t desiredScope) {
   uint32_t minOkay = desiredScope;
   minOkay = max(minOkay, thread->minLocalCollectionDepth);
   minOkay = max(minOkay, minNoCC);
-  uint32_t minDepth = max(thread->minLocalCollectionDepth, originalLocalScope);
-  while (minDepth > minOkay && minDepth > originalLocalScope) {
-    minDepth--;
+  HM_HierarchicalHeap topHeap = thread->hierarchicalHeap;
+  while (TRUE) {
+    HM_HierarchicalHeap desired = topHeap->nextAncestor;
+    if (NULL == desired)
+      break;
+    assert(HM_HH_getDepth(desired) == HM_HH_getDepth(topHeap)-1);
+    if (HM_HH_getDepth(desired) < minOkay)
+      break;
+    bool desiredHasUnstolenRightChild = (NULL == desired->otherChild);
+    if (desiredHasUnstolenRightChild && !tryClaimLocalScope(s))
+      break;
+    topHeap = desired;
   }
-  while (minDepth > minOkay && tryClaimLocalScope(s)) {
-    minDepth--;
-  }
+  uint32_t minDepth = HM_HH_getDepth(topHeap);
+
+  // uint32_t minDepth = max(thread->minLocalCollectionDepth, originalLocalScope);
+  // while (minDepth > minOkay && minDepth > originalLocalScope) {
+  //   minDepth--;
+  // }
+  // while (minDepth > minOkay && tryClaimLocalScope(s)) {
+  //   minDepth--;
+  // }
 
   if ( minDepth == 0 ||
        minOkay > minDepth ||
