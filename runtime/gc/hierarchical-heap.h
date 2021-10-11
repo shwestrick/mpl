@@ -70,6 +70,8 @@ typedef struct HM_HierarchicalHeap {
    * copying) which is merged only at join points of the program. */
   struct HM_HierarchicalHeap *nextAncestor;
 
+  struct HM_HierarchicalHeap *otherChild;
+
   size_t numDependants;
   size_t heightDependants;
 
@@ -145,10 +147,14 @@ uint32_t HM_HH_desiredCollectionScope(GC_state s, GC_thread thread);
 
 void HM_HH_forceLeftHeap(uint32_t processor, pointer threadp);
 void HM_HH_forceNewChunk(GC_state s);
-pointer HM_HH_getRoot(pointer threadp);
+pointer HM_HH_getCurrentHeap(pointer threadp);
 Bool HM_HH_registerCont(pointer kl, pointer kr, pointer k, pointer threadp);
 void HM_HH_cancelCC(GC_state s, pointer threadp, pointer hhp);
 void HM_HH_resetList(pointer threadp);
+
+void HM_HH_attachCurrentHeapAsOtherChildOf(GC_state s, pointer parentHeap);
+void HM_HH_newHeapForRightChild(GC_state s, pointer parentHeap);
+void HM_HH_mergeSibling(GC_state s, pointer parentHeap);
 
 
 /** Very fancy (constant-space) loop that frees each dependant union-find

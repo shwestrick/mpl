@@ -434,7 +434,11 @@ structure Thread =
       val collectThreadRoot = _import "CC_collectAtRoot" runtime private: thread * Word64.word -> unit;
 
       val getDepth = _import "GC_HH_getDepth" runtime private: thread -> Word32.word;
-      val getRoot = _import "HM_HH_getRoot" runtime private: thread -> Word64.word;
+      val getCurrentHeap = _import "HM_HH_getCurrentHeap" runtime private: thread -> Word64.word;
+
+      val attachCurrentHeapAsOtherChildOf = _import "HM_HH_attachCurrentHeapAsOtherChildOf" runtime private: GCState.t * Word64.word -> unit;
+      val newHeapForRightChild = _import "HM_HH_newHeapForRightChild" runtime private: GCState.t * Word64.word -> unit;
+      val mergeSibling = _import "HM_HH_mergeSibling" runtime private: GCState.t * Word64.word -> unit;
 
       val setDepth = _import "GC_HH_setDepth" runtime private: thread * Word32.word -> unit;
       val setMinLocalCollectionDepth = _import "GC_HH_setMinLocalCollectionDepth" runtime private: thread * Word32.word -> unit;

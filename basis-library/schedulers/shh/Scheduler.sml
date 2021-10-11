@@ -22,7 +22,7 @@ struct
   structure HH = MLton.Thread.HierarchicalHeap
 
   datatype task =
-    NormalTask of unit -> unit
+    NormalTask of (unit -> unit) * int
   | GCTask of Thread.t * Word64.word
 
   structure DE = MLton.Thread.Disentanglement
@@ -255,6 +255,8 @@ struct
     (* Must be called from a "user" thread, which has an associated HH *)
     fun parfork thread depth (f : unit -> 'a, g : unit -> 'b) =
       let
+        val parentHeap = HH.getCurrentHeap thread
+
         (** NOTE: these cannot be safely combined into a single ref. After
           * the join, reading the thread is safe because the thread object
           * is stored at a safe depth. But reading the result is entangled
@@ -262,8 +264,9 @@ struct
           *)
         val rightSideThread = ref (NONE: Thread.t option)
         val rightSideResult = ref (NONE: 'b result option)
-        val incounter = ref 2
 
+        val leftSideResult = ref (NONE: 'a result option)
+        val incounter = ref 2
         val (tidLeft, tidRight) = DE.decheckFork ()
 
         fun g' () =
@@ -282,69 +285,59 @@ struct
             else
               returnToSched ()
           end
-        val _ = push (NormalTask g')
-        (* val _ =
-              if (depth < internalGCThresh) then
-                let
-                  val cont_arr1 =  Array.array (1, SOME(f))
-                  val cont_arr2 =  Array.array (1, SOME(g))
-                  val cont_arr3 =  Array.array (0, NONE)
-                in
-                    HH.registerCont(cont_arr1,  cont_arr2, cont_arr3, thread)
-                  ; HH.setDepth (thread, depth + 1)
-                  ; HH.forceLeftHeap(myWorkerId(), thread)
-                end
-              else
-                (HH.setDepth (thread, depth + 1)) *)
+
+        val _ = push (NormalTask (g', depth))
         val _ = HH.setDepth (thread, depth + 1)
 
         (* NOTE: off-by-one on purpose. Runtime depths start at 1. *)
         val _ = recordForkDepth depth
 
-        val _ = DE.decheckSetTid tidLeft
-        val fr = result f
-        val tidLeft = DE.decheckGetTid thread
+        val tidLeft =
+          ( DE.decheckSetTid tidLeft
+          ; leftSideResult := SOME (result f)
+          ; DE.decheckGetTid thread
+          )
 
-        val (gr, tidRight) =
+        val () =
           if popDiscard () then
-            ( HH.promoteChunks thread
+            ( DE.decheckSetTid tidRight
+            ; HH.newHeapForRightChild parentHeap
+            ; rightSideResult := SOME (result g)
+            ; DE.decheckJoin (tidLeft, DE.decheckGetTid thread)
+            ; HH.mergeSibling parentHeap
+            ; HH.promoteChunks thread
             ; HH.setDepth (thread, depth)
-            ; DE.decheckSetTid tidRight
-            (* ; HH.forceNewChunk () *)
-            ; let
-                val gr = result g
-              in
-                (gr, DE.decheckGetTid thread)
-              end
             )
           else
             ( clear () (* this should be safe after popDiscard fails? *)
             ; if decrementHitsZero incounter then () else returnToSched ()
+            ; setQueueDepth (myWorkerId ()) depth
             ; case HM.refDerefNoBarrier rightSideThread of
                 NONE => die (fn _ => "scheduler bug: join failed")
               | SOME t =>
-                  let
-                    val tr = DE.decheckGetTid t
-                  in
-                    HH.mergeThreads (thread, t);
-                    HH.promoteChunks thread;
-                    HH.setDepth (thread, depth);
-                    setQueueDepth (myWorkerId ()) depth;
-                    case HM.refDerefNoBarrier rightSideResult of
-                      NONE => die (fn _ => "scheduler bug: join failed: missing result")
-                    | SOME gr => (gr, tr)
-                  end
+                  ( DE.decheckJoin (tidLeft, DE.decheckGetTid t)
+                  ; HH.mergeThreads (thread, t)
+                  ; HH.promoteChunks thread
+                  ; HH.setDepth (thread, depth)
+                  )
             )
 
-        val () = DE.decheckJoin (tidLeft, tidRight)
+        val fr =
+          case HM.refDerefNoBarrier leftSideResult of
+            NONE => die (fn _ => "scheduler bug: join failed: missing left-side result")
+          | SOME x => extractResult x
+        val gr =
+          case HM.refDerefNoBarrier rightSideResult of
+            NONE => die (fn _ => "scheduler bug: join failed: missing right-side result")
+          | SOME x => extractResult x
       in
-        (extractResult fr, extractResult gr)
+        (fr, gr)
       end
 
 
     fun forkGC thread depth (f : unit -> 'a, g : unit -> 'b) =
       let
-        val rootHH = HH.getRoot thread
+        val rootHH = HH.getCurrentHeap thread
 
         (* fun gcFunc() =
           ( HH.collectThreadRoot(thread, rootHH)
@@ -458,14 +451,14 @@ struct
       fun acquireWork () : unit =
         let
           val idleTimer = startTimer myId
-          val (task, depth, idleTimer') = request idleTimer
+          val (task, _, idleTimer') = request idleTimer
         in
           case task of
             GCTask (thread, hh) =>
               ( HH.collectThreadRoot (thread, hh)
               ; acquireWork ()
               )
-          | NormalTask t =>
+          | NormalTask (t, depth) =>
               let
                 val taskThread = Thread.copy prototypeThread
               in

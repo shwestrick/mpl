@@ -60,8 +60,11 @@ signature MLTON_THREAD =
           (*Collect the depth = 1 HH of this thread*)
           val cancelCC: thread * Word64.word -> unit
           val collectThreadRoot : thread * Word64.word -> unit
-          val getRoot : thread -> Word64.word
+          val getCurrentHeap : thread -> Word64.word
 
+          val attachCurrentHeapAsOtherChildOf: Word64.word -> unit
+          val newHeapForRightChild: Word64.word -> unit
+          val mergeSibling: Word64.word -> unit
 
           (* Merge the heap of the deepest child of this thread. Requires that
            * this child is inactive and has an associated heap. *)

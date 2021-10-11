@@ -235,6 +235,8 @@ HM_HierarchicalHeap HM_HH_zip(
       HM_appendChunkList(HM_HH_getRemSet(hh1), HM_HH_getRemSet(hh2));
       linkCCChains(s, hh1, hh2);
 
+      assert(NULL == hh1->otherChild && NULL == hh2->otherChild);
+
       // This has to happen before linkInto (which frees hh2)
       HM_HierarchicalHeap hh2anc = hh2->nextAncestor;
 
@@ -323,6 +325,20 @@ void HM_HH_merge(
   assert(childThread->currentDepth == parentThread->currentDepth);
   assert(childThread->currentDepth >= 1);
 
+  assert(parentHH->otherChild == NULL);
+  assert(childHH->otherChild == NULL);
+
+  // if (HM_HH_getDepth(parentHH) < HM_HH_getDepth(childHH)) {
+  //   assert(HM_HH_getDepth(parentHH) == HM_HH_getDepth(childHH) - 1);
+  //   assert(parentHH->otherChild == childHH);
+  //   parentHH->otherChild = NULL;
+  // }
+  // else {
+  //   assert(HM_HH_getDepth(parentHH->nextAncestor) == HM_HH_getDepth(parentHH) - 1);
+  //   assert(parentHH->nextAncestor->otherChild == childHH);
+  //   parentHH->nextAncestor->otherChild = NULL;
+  // }
+
   Trace2(EVENT_MERGED_HEAP, (EventInt)parentHH, (EventInt)childHH);
 
   // free stack of joining heap
@@ -337,6 +353,105 @@ void HM_HH_merge(
     childThread->bytesAllocatedSinceLastCollection;
 
   assertInvariants(parentThread);
+}
+
+void HM_HH_attachCurrentHeapAsOtherChildOf(GC_state s, pointer parentp)
+{
+  HM_HierarchicalHeap parent = (HM_HierarchicalHeap)parentp;
+  HM_HierarchicalHeap child = getThreadCurrent(s)->hierarchicalHeap;
+  assert(HM_HH_getDepth(child) == 1+HM_HH_getDepth(parent));
+  assert(parent->otherChild == NULL);
+
+  parent->otherChild = child;
+}
+
+void HM_HH_newHeapForRightChild(GC_state s, pointer parentp)
+{
+  getStackCurrent(s)->used = sizeofGCStateCurrentStackUsed(s);
+  getThreadCurrent(s)->exnStack = s->exnStack;
+  HM_HH_updateValues(getThreadCurrent(s), s->frontier);
+  assert(getThreadCurrent(s)->hierarchicalHeap != NULL);
+  assert(threadAndHeapOkay(s));
+
+  GC_thread thread = getThreadCurrent(s);
+  HM_HierarchicalHeap parent = (HM_HierarchicalHeap)parentp;
+  HM_HierarchicalHeap child = thread->hierarchicalHeap;
+
+  if (parent == child) {
+    /** Left child didn't allocate enough to force a new heap, so no big
+      * deal. Can keep reusing the parent.
+      */
+    assert(invariantForMutatorFrontier(s));
+    assert(invariantForMutatorStack(s));
+    return;
+  }
+
+  assert(NULL == child->otherChild);
+  assert(NULL == parent->otherChild);
+  assert(HM_HH_getDepth(child) == 1 + HM_HH_getDepth(parent));
+  assert(HM_HH_getDepth(child) == thread->currentDepth);
+  assert(child->nextAncestor == parent);
+
+  HM_HierarchicalHeap newHeap = HM_HH_new(s, thread->currentDepth);
+  parent->otherChild = child;
+  child->nextAncestor = NULL;
+  newHeap->nextAncestor = parent;
+  thread->hierarchicalHeap = newHeap;
+
+  if (!HM_HH_extend(s, thread, GC_HEAP_LIMIT_SLOP)) {
+    DIE("ran out of space for heap!");
+  }
+
+  s->frontier = HM_HH_getFrontier(getThreadCurrent(s));
+  s->limitPlusSlop = HM_HH_getLimit(getThreadCurrent(s));
+  s->limit = s->limitPlusSlop - GC_HEAP_LIMIT_SLOP;
+  assert(invariantForMutatorFrontier(s));
+  assert(invariantForMutatorStack(s));
+}
+
+void HM_HH_mergeSibling(GC_state s, pointer parentp)
+{
+  getStackCurrent(s)->used = sizeofGCStateCurrentStackUsed(s);
+  getThreadCurrent(s)->exnStack = s->exnStack;
+  HM_HH_updateValues(getThreadCurrent(s), s->frontier);
+  assert(getThreadCurrent(s)->hierarchicalHeap != NULL);
+  assert(threadAndHeapOkay(s));
+  HM_ensureHierarchicalHeapAssurances(s, FALSE, GC_HEAP_LIMIT_SLOP, FALSE);
+
+  GC_thread thread = getThreadCurrent(s);
+  HM_HierarchicalHeap hh = thread->hierarchicalHeap;
+  HM_HierarchicalHeap parent = (HM_HierarchicalHeap)parentp;
+
+  /** We may not have instantiated a new heap for either child, due to lack
+    * of allocations.
+    */
+  if (hh == parent) {
+    assert(thread->currentDepth > HM_HH_getDepth(hh));
+    return;
+  }
+
+  assert(hh->nextAncestor == parent);
+  assert(HM_HH_getDepth(parent) == HM_HH_getDepth(hh) - 1);
+
+  /** It's also possible we instantiated ONLY a right-side heap (but not left)
+    */
+  if (NULL == parent->otherChild) {
+    return;
+  }
+
+  assert(parent->otherChild != NULL);
+  HM_HierarchicalHeap sibling = parent->otherChild;
+  assert(HM_HH_getDepth(sibling) == HM_HH_getDepth(hh));
+
+  parent->otherChild = NULL;
+  CC_freeStack(HM_HH_getConcurrentPack(sibling));
+  thread->hierarchicalHeap = HM_HH_zip(s, hh, sibling);
+
+  s->frontier = HM_HH_getFrontier(getThreadCurrent(s));
+  s->limitPlusSlop = HM_HH_getLimit(getThreadCurrent(s));
+  s->limit = s->limitPlusSlop - GC_HEAP_LIMIT_SLOP;
+  assert(invariantForMutatorFrontier(s));
+  assert(invariantForMutatorStack(s));
 }
 
 void HM_HH_promoteChunks(
@@ -489,6 +604,7 @@ HM_HierarchicalHeap HM_HH_new(GC_state s, uint32_t depth)
   hh->subHeapCompletedCC = NULL;
   hh->depth = depth;
   hh->nextAncestor = NULL;
+  hh->otherChild = NULL;
   // hh->dependant1 = NULL;
   // hh->dependant2 = NULL;
   hh->numDependants = 0;
@@ -863,7 +979,7 @@ objptr copyCurrentStack(GC_state s, GC_thread thread) {
   return pointerToObjptr((pointer)stack, NULL);
 }
 
-pointer HM_HH_getRoot(ARG_USED_FOR_ASSERT pointer threadp) {
+pointer HM_HH_getCurrentHeap(ARG_USED_FOR_ASSERT pointer threadp) {
   GC_state s = pthread_getspecific(gcstate_key);
 
   /** Superfluous argument to function... */
@@ -881,7 +997,10 @@ pointer HM_HH_getRoot(ARG_USED_FOR_ASSERT pointer threadp) {
   s->limitPlusSlop = HM_HH_getLimit(getThreadCurrent(s));
   s->limit = s->limitPlusSlop - GC_HEAP_LIMIT_SLOP;
 
-  return (void*)(getThreadCurrent(s)->hierarchicalHeap);
+  HM_HierarchicalHeap result = getThreadCurrent(s)->hierarchicalHeap;
+  assert(HM_HH_getDepth(result) == getThreadCurrent(s)->currentDepth);
+
+  return (pointer)result;
 }
 
 // ============================================================================

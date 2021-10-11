@@ -165,6 +165,9 @@ void HM_HHC_collectLocal(uint32_t desiredScope) {
   minOkay = max(minOkay, thread->minLocalCollectionDepth);
   minOkay = max(minOkay, minNoCC);
   uint32_t minDepth = max(thread->minLocalCollectionDepth, originalLocalScope);
+  while (minDepth > minOkay && minDepth > originalLocalScope) {
+    minDepth--;
+  }
   while (minDepth > minOkay && tryClaimLocalScope(s)) {
     minDepth--;
   }
@@ -1000,14 +1003,14 @@ void tryUnpinOrKeepPinned(GC_state s, HM_remembered remElem, void* rawArgs) {
    * is set by the loop that calls this function */
   uint32_t opDepth = args->toDepth;
   HM_chunk chunk = HM_getChunkOf(objptrToPointer(op, NULL));
-  HM_HierarchicalHeap hh = HM_getLevelHead(chunk);
+  // HM_HierarchicalHeap hh = HM_getLevelHead(chunk);
 
   if (NULL == args->toSpace[opDepth]) {
     args->toSpace[opDepth] = HM_HH_new(s, opDepth);
   }
 
   assert(opDepth <= args->maxDepth);
-  assert(args->fromSpace[opDepth] == hh);
+  assert(args->fromSpace[opDepth] == HM_getLevelHead(chunk));
 
 #if 0
   /** If it's not in our from-space, then it's entangled.
