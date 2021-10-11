@@ -22,6 +22,7 @@
 
 // void forwardDownPtr(GC_state s, objptr dst, objptr* field, objptr src, void* args);
 
+#if 0
 void checkDisentangledDepthAndFreeze(
   GC_state s,
   HM_remembered remElem,
@@ -36,6 +37,7 @@ void unfreezeDisentangledDepthAfter(
   GC_state s,
   HM_remembered remElem,
   void* rawArgs);
+#endif
 
 void tryUnpinOrKeepPinned(
   GC_state s,
@@ -120,6 +122,149 @@ uint32_t minDepthWithoutCC(GC_thread thread) {
 
   return HM_HH_getDepth(cursor);
 }
+
+
+enum LocalCollectionLocation {
+  IN_PASSIVE_FROM_SPACE,
+  IN_MAIN_FROM_SPACE,
+  IN_PASSIVE_TO_SPACE,
+  IN_MAIN_TO_SPACE,
+  IN_UNKNOWN_SPACE
+};
+
+
+enum LocalCollectionLocation
+localCollectionLocation(
+  objptr op,
+  struct ForwardHHObjptrArgs *args)
+{
+  HM_chunk c = HM_getChunkOf(objptrToPointer(op, NULL));
+  HM_HierarchicalHeap heap = HM_getLevelHeadPathCompress(c);
+  uint32_t depth = HM_HH_getDepth(heap);
+  assert(depth <= args->maxDepth);
+  assert(NULL != heap);
+
+  if (heap == args->passiveFromSpace[depth])
+    return IN_PASSIVE_FROM_SPACE;
+  else if (heap == args->mainFromSpace[depth])
+    return IN_MAIN_FROM_SPACE;
+  else if (heap == args->passiveToSpace[depth])
+    return IN_PASSIVE_TO_SPACE;
+  else if (heap == args->mainToSpace[depth])
+    return IN_MAIN_TO_SPACE;
+  else {
+    DIE("don't know where this objptr is");
+    return IN_UNKNOWN_SPACE;
+  }
+}
+
+
+bool isObjptrInToSpace(objptr op, struct ForwardHHObjptrArgs *args)
+{
+  enum LocalCollectionLocation loc = localCollectionLocation(op, args);
+  return (loc == IN_PASSIVE_TO_SPACE || loc == IN_MAIN_TO_SPACE);
+}
+
+
+bool isObjptrInFromSpace(objptr op, struct ForwardHHObjptrArgs *args)
+{
+  enum LocalCollectionLocation loc = localCollectionLocation(op, args);
+  return (loc == IN_PASSIVE_FROM_SPACE || loc == IN_MAIN_FROM_SPACE);
+}
+
+
+/* ========================================================================= */
+
+void scavengeIntoToSpaceHeap(
+  GC_state s,
+  HM_HierarchicalHeap toSpaceHeap,
+  struct ForwardHHObjptrArgs *args)
+{
+
+  if (NULL == toSpaceHeap) {
+    return;
+  }
+
+  assert(
+    args->mainToSpace[HM_HH_getDepth(toSpaceHeap)] == toSpaceHeap
+    ||
+    args->passiveToSpace[HM_HH_getDepth(toSpaceHeap)] == toSpaceHeap
+  );
+
+  LOG(LM_HH_COLLECTION, LL_INFO,
+    "level %"PRIu32": num pinned: %zu",
+    HM_HH_getDepth(toSpaceHeap),
+    HM_numRemembered(HM_HH_getRemSet(toSpaceHeap)));
+
+  /* use the remembered (pinned) entries at this level as extra roots */
+  struct HM_foreachDownptrClosure closure =
+    {.fun = forwardObjptrsOfRemembered, .env = (void*)args};
+  HM_foreachRemembered(s, HM_HH_getRemSet(toSpaceHeap), &closure);
+
+  if (NULL != HM_HH_getChunkList(toSpaceHeap)->firstChunk)
+  {
+    HM_chunkList toSpaceList = HM_HH_getChunkList(toSpaceHeap);
+    HM_forwardHHObjptrsInChunkList(
+      s,
+      toSpaceList->firstChunk,
+      HM_getChunkStart(toSpaceList->firstChunk),
+      // &skipStackAndThreadObjptrPredicate,
+      // &ssatoPredicateArgs,
+      &trueObjptrPredicate,
+      NULL,
+      &forwardHHObjptr,
+      args);
+  }
+}
+
+/* ========================================================================= */
+
+void movePinnedChunksIntoToSpaceHeap(
+  ARG_USED_FOR_ASSERT GC_state s,
+  HM_chunkList pinned,
+  HM_HierarchicalHeap toSpaceHeap)
+{
+  if (NULL == toSpaceHeap) {
+    /* check that there are also no pinned chunks at this level
+     * (if there was pinned chunk, then we would have also created a
+     * toSpace HH at this depth, because we would have scavenged the
+     * remembered entry) */
+    assert(pinned->firstChunk == NULL);
+    return;
+  }
+
+#if ASSERT
+  // SAM_NOTE: safe to check here, because pinned chunks are separate.
+  traverseEachObjInChunkList(s, HM_HH_getChunkList(toSpaceHeap));
+#endif
+
+  /* unset the flags on pinned chunks and update their HH pointer */
+  for (HM_chunk chunkCursor = pinned->firstChunk;
+       chunkCursor != NULL;
+       chunkCursor = chunkCursor->nextChunk)
+  {
+    assert(chunkCursor->pinnedDuringCollection);
+    chunkCursor->pinnedDuringCollection = FALSE;
+    chunkCursor->levelHead = HM_HH_getUFNode(toSpaceHeap);
+  }
+
+  /* put the pinned chunks into the toSpace */
+  HM_appendChunkList(HM_HH_getChunkList(toSpaceHeap), pinned);
+}
+
+/* ========================================================================= */
+
+void freeHeap(GC_state s, HM_HierarchicalHeap heap)
+{
+  if (NULL == heap) return;
+  HM_freeChunksInList(s, HM_HH_getRemSet(heap));
+  HM_freeChunksInList(s, HM_HH_getChunkList(heap));
+  HM_HH_freeAllDependants(s, heap, FALSE);
+  freeFixedSize(getUFAllocator(s), HM_HH_getUFNode(heap));
+  freeFixedSize(getHHAllocator(s), heap);
+}
+
+/* ========================================================================= */
 
 void HM_HHC_collectLocal(uint32_t desiredScope) {
   GC_state s = pthread_getspecific(gcstate_key);
@@ -234,9 +379,12 @@ void HM_HHC_collectLocal(uint32_t desiredScope) {
     .minDepth = minDepth,
     .maxDepth = maxDepth,
     .toDepth = HM_HH_INVALID_DEPTH,
-    .fromSpace = NULL,
-    .toSpace = NULL,
-    .pinned = NULL,
+    .passiveFromSpace = NULL,
+    .mainFromSpace = NULL,
+    .passiveToSpace = NULL,
+    .mainToSpace = NULL,
+    .passivePinned = NULL,
+    .mainPinned = NULL,
     .containingObject = BOGUS_OBJPTR,
     .bytesCopied = 0,
     .objectsCopied = 0,
@@ -259,21 +407,43 @@ void HM_HHC_collectLocal(uint32_t desiredScope) {
       forwardHHObjptrArgs.minDepth,
       forwardHHObjptrArgs.maxDepth);
 
-  struct HM_chunkList pinned[maxDepth+1];
-  forwardHHObjptrArgs.pinned = &(pinned[0]);
-  for (uint32_t i = 0; i <= maxDepth; i++) HM_initChunkList(&(pinned[i]));
+  struct HM_chunkList mainPinned[maxDepth+1];
+  forwardHHObjptrArgs.mainPinned = &(mainPinned[0]);
+  for (uint32_t i = 0; i <= maxDepth; i++) HM_initChunkList(&(mainPinned[i]));
 
-  HM_HierarchicalHeap toSpace[maxDepth+1];
-  forwardHHObjptrArgs.toSpace = &(toSpace[0]);
-  for (uint32_t i = 0; i <= maxDepth; i++) toSpace[i] = NULL;
+  struct HM_chunkList passivePinned[maxDepth+1];
+  forwardHHObjptrArgs.passivePinned = &(passivePinned[0]);
+  for (uint32_t i = 0; i <= maxDepth; i++) HM_initChunkList(&(passivePinned[i]));
 
-  HM_HierarchicalHeap fromSpace[maxDepth+1];
-  forwardHHObjptrArgs.fromSpace = &(fromSpace[0]);
-  for (uint32_t i = 0; i <= maxDepth; i++) fromSpace[i] = NULL;
+  HM_HierarchicalHeap mainToSpace[maxDepth+1];
+  forwardHHObjptrArgs.mainToSpace = &(mainToSpace[0]);
+  for (uint32_t i = 0; i <= maxDepth; i++) mainToSpace[i] = NULL;
+
+  HM_HierarchicalHeap passiveToSpace[maxDepth+1];
+  forwardHHObjptrArgs.passiveToSpace = &(passiveToSpace[0]);
+  for (uint32_t i = 0; i <= maxDepth; i++) passiveToSpace[i] = NULL;
+
+  HM_HierarchicalHeap mainFromSpace[maxDepth+1];
+  forwardHHObjptrArgs.mainFromSpace = &(mainFromSpace[0]);
+  for (uint32_t i = 0; i <= maxDepth; i++) mainFromSpace[i] = NULL;
+
+  HM_HierarchicalHeap passiveFromSpace[maxDepth+1];
+  forwardHHObjptrArgs.passiveFromSpace = &(passiveFromSpace[0]);
+  for (uint32_t i = 0; i <= maxDepth; i++) passiveFromSpace[i] = NULL;
+
+  // the bottom-most heap won't have this, but some of its ancestors might
+  assert(NULL == hh->otherChild);
+
+  // populate the from-spaces
   for (HM_HierarchicalHeap cursor = hh;
        NULL != cursor;
-       cursor = cursor->nextAncestor) {
-    fromSpace[HM_HH_getDepth(cursor)] = cursor;
+       cursor = cursor->nextAncestor)
+  {
+    mainFromSpace[HM_HH_getDepth(cursor)] = cursor;
+    if (NULL != cursor->otherChild) {
+      assert(HM_HH_getDepth(cursor->otherChild) == HM_HH_getDepth(cursor)+1);
+      passiveFromSpace[HM_HH_getDepth(cursor->otherChild)] = cursor->otherChild;
+    }
   }
 
   /* =====================================================================
@@ -375,7 +545,7 @@ void HM_HHC_collectLocal(uint32_t desiredScope) {
        NULL != cursor;
        cursor = cursor->nextAncestor)
   {
-    assert(forwardHHObjptrArgs.fromSpace[HM_HH_getDepth(cursor)] == cursor);
+    assert(forwardHHObjptrArgs.mainFromSpace[HM_HH_getDepth(cursor)] == cursor);
   }
 #endif
 
@@ -481,68 +651,24 @@ void HM_HHC_collectLocal(uint32_t desiredScope) {
   uint32_t depth = thread->currentDepth+1;
   while (depth > forwardHHObjptrArgs.minDepth) {
     depth--;
-    HM_HierarchicalHeap toSpaceLevel = toSpace[depth];
-    if (NULL == toSpaceLevel) {
-      continue;
-    }
-
-    LOG(LM_HH_COLLECTION, LL_INFO,
-      "level %"PRIu32": num pinned: %zu",
-      depth,
-      HM_numRemembered(HM_HH_getRemSet(toSpaceLevel)));
-
-    /* use the remembered (pinned) entries at this level as extra roots */
-    struct HM_foreachDownptrClosure closure =
-      {.fun = forwardObjptrsOfRemembered, .env = (void*)&forwardHHObjptrArgs};
-    HM_foreachRemembered(s, HM_HH_getRemSet(toSpaceLevel), &closure);
-
-    if (NULL != HM_HH_getChunkList(toSpaceLevel)->firstChunk)
-    {
-      HM_chunkList toSpaceList = HM_HH_getChunkList(toSpaceLevel);
-      HM_forwardHHObjptrsInChunkList(
-        s,
-        toSpaceList->firstChunk,
-        HM_getChunkStart(toSpaceList->firstChunk),
-        // &skipStackAndThreadObjptrPredicate,
-        // &ssatoPredicateArgs,
-        &trueObjptrPredicate,
-        NULL,
-        &forwardHHObjptr,
-        &forwardHHObjptrArgs);
-    }
+    scavengeIntoToSpaceHeap(s, mainToSpace[depth], &forwardHHObjptrArgs);
+    scavengeIntoToSpaceHeap(s, passiveToSpace[depth], &forwardHHObjptrArgs);
   }
 
   /* after everything has been scavenged, we have to move the pinned chunks */
   depth = thread->currentDepth+1;
   while (depth > forwardHHObjptrArgs.minDepth) {
     depth--;
-    HM_HierarchicalHeap toSpaceLevel = toSpace[depth];
-    if (NULL == toSpaceLevel) {
-      /* check that there are also no pinned chunks at this level
-       * (if there was pinned chunk, then we would have also created a
-       * toSpace HH at this depth, because we would have scavenged the
-       * remembered entry) */
-      assert(pinned[depth].firstChunk == NULL);
-      continue;
-    }
-
-#if ASSERT
-    // SAM_NOTE: safe to check here, because pinned chunks are separate.
-    traverseEachObjInChunkList(s, HM_HH_getChunkList(toSpaceLevel));
-#endif
-
-    /* unset the flags on pinned chunks and update their HH pointer */
-    for (HM_chunk chunkCursor = pinned[depth].firstChunk;
-         chunkCursor != NULL;
-         chunkCursor = chunkCursor->nextChunk)
-    {
-      assert(chunkCursor->pinnedDuringCollection);
-      chunkCursor->pinnedDuringCollection = FALSE;
-      chunkCursor->levelHead = HM_HH_getUFNode(toSpaceLevel);
-    }
-
-    /* put the pinned chunks into the toSpace */
-    HM_appendChunkList(HM_HH_getChunkList(toSpaceLevel), &(pinned[depth]));
+    movePinnedChunksIntoToSpaceHeap(
+      s,
+      &(mainPinned[depth]),
+      mainToSpace[depth]
+    );
+    movePinnedChunksIntoToSpaceHeap(
+      s,
+      &(passivePinned[depth]),
+      passiveToSpace[depth]
+    );
   }
 
   LOG(LM_HH_COLLECTION, LL_DEBUG,
@@ -558,59 +684,51 @@ void HM_HHC_collectLocal(uint32_t desiredScope) {
 
   /* ===================================================================== */
 
-  /* Free old chunks and find the tail (upper segment) of the original hh
+  /* Find the tail (upper segment) of the original hh
    * that will be merged with the toSpace */
   HM_HierarchicalHeap hhTail = hh;
   while (NULL != hhTail && HM_HH_getDepth(hhTail) >= minDepth)
   {
     assert(hhTail->subHeapForCC == NULL);
     assert(hhTail->subHeapCompletedCC == NULL);
-    HM_HierarchicalHeap nextAncestor = hhTail->nextAncestor;
+    hhTail = hhTail->nextAncestor;
+  }
 
-    HM_chunkList level = HM_HH_getChunkList(hhTail);
-    HM_chunkList remset = HM_HH_getRemSet(hhTail);
-    if (NULL != remset) {
-#if ASSERT
-      /* clear out memory to quickly catch some memory safety errors */
-      // HM_chunk chunkCursor = remset->firstChunk;
-      // while (chunkCursor != NULL) {
-      //   pointer start = HM_getChunkStart(chunkCursor);
-      //   size_t length = (size_t)(chunkCursor->limit - start);
-      //   memset(start, 0xBF, length);
-      //   chunkCursor = chunkCursor->nextChunk;
-      // }
-#endif
-      HM_freeChunksInList(s, remset);
-    }
+  // if it exists, remove the top-most passive child from the tail.
+  if (NULL != passiveFromSpace[minDepth]) {
+    assert(minDepth > 0);
+    assert(NULL != mainFromSpace[minDepth-1]);
+    assert(mainFromSpace[minDepth-1] == hhTail);
+    assert(hhTail->otherChild == passiveFromSpace[minDepth]);
+    hhTail->otherChild = NULL;
+  }
 
-#if ASSERT
-    /* clear out memory to quickly catch some memory safety errors */
-    // HM_chunk chunkCursor = level->firstChunk;
-    // while (chunkCursor != NULL) {
-    //   pointer start = HM_getChunkStart(chunkCursor);
-    //   size_t length = (size_t)(chunkCursor->limit - start);
-    //   memset(start, 0xBF, length);
-    //   chunkCursor = chunkCursor->nextChunk;
-    // }
-#endif
-
-    HM_freeChunksInList(s, level);
-    HM_HH_freeAllDependants(s, hhTail, FALSE);
-    freeFixedSize(getUFAllocator(s), HM_HH_getUFNode(hhTail));
-    freeFixedSize(getHHAllocator(s), hhTail);
-
-    hhTail = nextAncestor;
+  // free chunks and heaps in the from-spaces
+  for (uint32_t depth = minDepth; depth <= maxDepth; depth++) {
+    freeHeap(s, mainFromSpace[depth]);
+    freeHeap(s, passiveFromSpace[depth]);
   }
 
   /* Build the toSpace hh */
   HM_HierarchicalHeap hhToSpace = NULL;
   for (uint32_t i = 0; i <= maxDepth; i++)
   {
-    if (NULL == toSpace[i])
+    bool existsHere = (NULL != mainToSpace[i]);
+    bool passiveChildExists = (i < maxDepth && NULL != passiveToSpace[i+1]);
+
+    if (!existsHere && !passiveChildExists)
       continue;
 
-    toSpace[i]->nextAncestor = hhToSpace;
-    hhToSpace = toSpace[i];
+    if (!existsHere)
+      mainToSpace[i] = HM_HH_new(s, i);
+
+    assert(mainToSpace[i]->otherChild == NULL);
+
+    if (passiveChildExists)
+      mainToSpace[i]->otherChild = passiveToSpace[i+1];
+
+    mainToSpace[i]->nextAncestor = hhToSpace;
+    hhToSpace = mainToSpace[i];
   }
 
   /* merge in toSpace */
@@ -630,7 +748,7 @@ void HM_HHC_collectLocal(uint32_t desiredScope) {
        NULL != cursor;
        cursor = cursor->nextAncestor)
   {
-    toSpace[HM_HH_getDepth(cursor)] = cursor;
+    mainToSpace[HM_HH_getDepth(cursor)] = cursor;
   }
 
   /* update currentChunk and associated */
@@ -799,19 +917,6 @@ void HM_HHC_collectLocal(uint32_t desiredScope) {
 
 /* ========================================================================= */
 
-bool isObjptrInToSpace(objptr op, struct ForwardHHObjptrArgs *args)
-{
-  HM_chunk c = HM_getChunkOf(objptrToPointer(op, NULL));
-  HM_HierarchicalHeap levelHead = HM_getLevelHeadPathCompress(c);
-  uint32_t depth = HM_HH_getDepth(levelHead);
-  assert(depth <= args->maxDepth);
-  assert(NULL != levelHead);
-
-  return args->toSpace[depth] == levelHead;
-}
-
-/* ========================================================================= */
-
 objptr relocateObject(
   GC_state s,
   objptr op,
@@ -891,6 +996,7 @@ void forwardDownPtr(GC_state s, objptr dst, objptr* field, objptr src, void* raw
 
 /* ========================================================================= */
 
+#if 0
 void checkDisentangledDepthAndFreeze(
   __attribute__((unused)) GC_state s,
   HM_remembered remElem,
@@ -993,6 +1099,7 @@ void unfreezeDisentangledDepthAfter(
     chunk->disentangledDepth = -(chunk->disentangledDepth);
   }
 }
+#endif
 
 /* ========================================================================= */
 
@@ -1004,8 +1111,7 @@ void tryUnpinOrKeepPinned(GC_state s, HM_remembered remElem, void* rawArgs) {
     // If previously unpinned, then no need to remember this object.
 
 #if ASSERT
-    HM_chunk fromChunk = HM_getChunkOf(objptrToPointer(remElem->from, NULL));
-    assert(HM_getLevelHead(fromChunk) == args->fromSpace[args->toDepth]);
+    assert(isObjptrInFromSpace(remElem->from, args));
 #endif
 
     return;
@@ -1013,38 +1119,18 @@ void tryUnpinOrKeepPinned(GC_state s, HM_remembered remElem, void* rawArgs) {
 
   assert(isPinned(op));
 
-  /* We could just look up the depth of `op`, with the normal technique
-   * (getLevelHead, etc.), but this should be faster. The toDepth field
-   * is set by the loop that calls this function */
   uint32_t opDepth = args->toDepth;
   HM_chunk chunk = HM_getChunkOf(objptrToPointer(op, NULL));
   // HM_HierarchicalHeap hh = HM_getLevelHead(chunk);
 
-  if (NULL == args->toSpace[opDepth]) {
-    args->toSpace[opDepth] = HM_HH_new(s, opDepth);
-  }
-
-  assert(opDepth <= args->maxDepth);
-  assert(args->fromSpace[opDepth] == HM_getLevelHead(chunk));
-
-#if 0
-  /** If it's not in our from-space, then it's entangled.
-    * KEEP THE ENTRY but don't do any of the other nasty stuff.
-    *
-    * SAM_NOTE: pinned chunks still have their HH set to the from-space,
-    * despite living in separate chunklists.
-    */
-  if (opDepth > args->maxDepth || args->fromSpace[opDepth] != hh) {
-    assert(s->controls->manageEntanglement);
-    /** TODO: assert entangled here */
-
-    HM_remember(HM_HH_getRemSet(args->toSpace[opDepth]), remElem);
-    return;
-  }
-#endif
+  // if (NULL == args->toSpace[opDepth]) {
+  //   args->toSpace[opDepth] = HM_HH_new(s, opDepth);
+  // }
 
   assert(HM_getObjptrDepth(op) == opDepth);
-  assert(HM_getLevelHead(chunk) == args->fromSpace[opDepth]);
+  assert(args->minDepth <= opDepth);
+  assert(opDepth <= args->maxDepth);
+  assert(isObjptrInFromSpace(op, args));
 
   uint32_t unpinDepth = unpinDepthOf(op);
 
@@ -1072,114 +1158,41 @@ void tryUnpinOrKeepPinned(GC_state s, HM_remembered remElem, void* rawArgs) {
   /* otherwise, object stays pinned, and we have to scavenge this remembered
    * entry into the toSpace. */
 
-  HM_remember(HM_HH_getRemSet(args->toSpace[opDepth]), remElem);
+  enum LocalCollectionLocation loc = localCollectionLocation(op, args);
+  HM_HierarchicalHeap* targetToSpace =
+    loc == IN_MAIN_FROM_SPACE ?
+    args->mainToSpace :
+    args->passiveToSpace;
+
+  if (NULL == targetToSpace[opDepth]) {
+    targetToSpace[opDepth] = HM_HH_new(s, opDepth);
+  }
+
+  HM_remember(HM_HH_getRemSet(targetToSpace[opDepth]), remElem);
 
   if (chunk->pinnedDuringCollection) {
     return;
   }
 
+  HM_HierarchicalHeap fromSpaceHeap =
+    loc == IN_MAIN_FROM_SPACE ?
+    args->mainFromSpace[opDepth] :
+    args->passiveFromSpace[opDepth];
+
+  HM_chunkList targetPinnedList =
+    loc == IN_MAIN_FROM_SPACE ?
+    &(args->mainPinned[opDepth]) :
+    &(args->passivePinned[opDepth]);
+
   chunk->pinnedDuringCollection = TRUE;
-  assert(hhContainsChunk(args->fromSpace[opDepth], chunk));
-  assert(HM_getLevelHead(chunk) == args->fromSpace[opDepth]);
+  assert(HM_getLevelHead(chunk) == fromSpaceHeap);
+  assert(hhContainsChunk(fromSpaceHeap, chunk));
 
-  HM_unlinkChunkPreserveLevelHead(
-    HM_HH_getChunkList(args->fromSpace[opDepth]),
-    chunk);
-  HM_appendChunk(&(args->pinned[opDepth]), chunk);
+  HM_unlinkChunkPreserveLevelHead(HM_HH_getChunkList(fromSpaceHeap), chunk);
+  HM_appendChunk(targetPinnedList, chunk);
 
-  assert(HM_getLevelHead(chunk) == args->fromSpace[opDepth]);
+  assert(HM_getLevelHead(chunk) == fromSpaceHeap);
 }
-
-/* ========================================================================= */
-
-#if 0
-void scavengeChunkOfPinnedObject(
-  GC_state s,
-  objptr op,
-  void* rawArgs)
-{
-  assert(isPinned(op));
-  struct ForwardHHObjptrArgs* args = (struct ForwardHHObjptrArgs*)rawArgs;
-  /* The toDepth field is set by the loop that calls this function.
-   * Note: Can't do HM_getObjptrDepth or similar here! We broke that by
-   * moving chunks around during this phase! */
-  uint32_t opDepth = args->toDepth;
-
-  /* can't be NULL, because when we filtered the remembered set, we scavenged
-   * all entries into the toSpace */
-  assert(NULL != args->toSpace[opDepth]);
-
-  HM_chunk chunk = HM_getChunkOf(objptrToPointer(op, NULL));
-
-  if (!chunk->pinnedDuringCollection) {
-    assert(isObjptrInToSpace(op, args));
-    return;
-  }
-
-#if ASSERT
-  /* make sure we're removing the chunk from the correct list!! */
-  assert(hhContainsChunk(args->fromSpace[opDepth], chunk));
-#endif
-
-  /* Can't do HM_getLevelHead here! We broke that by moving chunks around! */
-  HM_unlinkChunk(HM_HH_getChunkList(args->fromSpace[opDepth]), chunk);
-  HM_appendChunk(HM_HH_getChunkList(args->toSpace[opDepth]), chunk);
-  chunk->levelHead = args->toSpace[opDepth];
-  chunk->pinnedDuringCollection = FALSE;
-
-  /* All unpinned objects need to be replaced by gaps!!
-   * These objects were scavenged out of these chunks, and so now the
-   * leftover space is meaningless bits. If we interpret this leftover space
-   * as actual objects in a subsequent collection, it will be incorrect.
-   *
-   * TODO: coalesce gaps (easy to do; just need to hop forward until we find
-   * the next pinned object and then create a single large gap)
-   *
-   * TODO: this could be more efficient if we have special pinned chunks that
-   * do not contain unpinned objects? Then we can leave all the gaps alone,
-   * and we know that these chunks will never need to be scanned. But it is
-   * tricky to guarantee that a chunk contains no unpinned objects... here's
-   * a brainstorm.
-   *   - (Bad idea) At write barrier, eagerly forward freshly pinned object
-   *   into a pinned chunk. Difficult to implement because then the mutator
-   *   needs a read barrier to follow forwarding pointers created at pins.
-   *   And how do you unpin?
-   *   - (Possible?) For each heap, maintain a separate space of pinned chunks.
-   *   At write barrier, we could buffer newly pinned objects and pin their
-   *   chunks later. At local GC, make sure to scavenge all unpinned objects
-   *   out of these chunks...
-   */
-  pointer p = HM_getChunkStart(chunk);
-  while (p < HM_getChunkFrontier(chunk)) {
-    pointer objStart = advanceToObjectData(s, p);
-
-    /* to calculate the object's size, we have to handle the case where it
-     * was forwarded out of this chunk. */
-    size_t objSize;
-    if (hasFwdPtr(objStart)) {
-      objSize = objectSize(s, objptrToPointer(getFwdPtr(objStart), NULL));
-    } else {
-      objSize = objectSize(s, objStart);
-    }
-
-    pointer objEnd = objStart + objSize;
-    assert(objEnd <= HM_getChunkFrontier(chunk));
-
-    /* leave pinned objects alone */
-    if (!hasFwdPtr(objStart) && isPinned(pointerToObjptr(objStart, NULL))) {
-      p = objEnd;
-      continue;
-    }
-
-    /* fill garbage object with a gap */
-    fillGap(s, p, objEnd);
-    p = objEnd;
-  }
-
-  assert(p == HM_getChunkFrontier(chunk));
-  assert(isObjptrInToSpace(op, args));
-}
-#endif
 
 /* ========================================================================= */
 
@@ -1272,9 +1285,7 @@ void forwardHHObjptr (GC_state s,
   /* Assert is in from space. This holds for pinned objects, too, because
    * their levelHead is still set to the fromSpace HH. (Pinned objects are
    * stored in a different chunklist during collection through.) */
-  assert( HM_getLevelHead(HM_getChunkOf(objptrToPointer(op, NULL)))
-          ==
-          args->fromSpace[HM_getObjptrDepth(op)] );
+  assert(isObjptrInFromSpace(op, args));
 
   if (hasFwdPtr(p)) {
     objptr fop = getFwdPtr(p);
@@ -1298,9 +1309,7 @@ void forwardHHObjptr (GC_state s,
    */
   {
     assert(!isPinned(op));
-    assert(!isObjptrInToSpace(op, args));
-    assert(HM_getLevelHead(HM_getChunkOf(p)) == args->fromSpace[HM_getObjptrDepth(op)]);
-    assert(HM_getObjptrDepth(op) >= args->minDepth);
+    assert(isObjptrInFromSpace(op, args));
     assert(HM_getObjptrDepth(op) == opDepth);
     assert(opDepth >= args->minDepth);
     /* forward the object */
@@ -1329,11 +1338,15 @@ void forwardHHObjptr (GC_state s,
         break;
     }
 
-    HM_HierarchicalHeap tgtHeap = args->toSpace[opDepth];
+    HM_HierarchicalHeap* targetToSpace =
+      localCollectionLocation(op, args) == IN_MAIN_FROM_SPACE ?
+      args->mainToSpace : args->passiveToSpace;
+
+    HM_HierarchicalHeap tgtHeap = targetToSpace[opDepth];
     if (tgtHeap == NULL) {
       /* Level does not exist, so create it */
       tgtHeap = HM_HH_new(s, opDepth);
-      args->toSpace[opDepth] = tgtHeap;
+      targetToSpace[opDepth] = tgtHeap;
     }
     assert(p == objptrToPointer(op, NULL));
 

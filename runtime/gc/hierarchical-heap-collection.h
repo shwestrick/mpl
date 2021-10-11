@@ -28,10 +28,13 @@ struct ForwardHHObjptrArgs {
   uint32_t toDepth; /* if == HM_HH_INVALID_DEPTH, preserve level of the forwarded object */
 
   /* arrays of HH objects, e.g. HM_HH_getDepth(toSpace[i]) == i */
-  HM_HierarchicalHeap* fromSpace;
-  HM_HierarchicalHeap* toSpace;
+  HM_HierarchicalHeap* mainFromSpace;
+  HM_HierarchicalHeap* passiveFromSpace;
+  HM_HierarchicalHeap* mainToSpace;
+  HM_HierarchicalHeap* passiveToSpace;
   /* an array of pinned chunklists */
-  struct HM_chunkList *pinned;
+  struct HM_chunkList *mainPinned;
+  struct HM_chunkList *passivePinned;
 
   /* a hack to keep track of which object is currently being traced */
   objptr containingObject;

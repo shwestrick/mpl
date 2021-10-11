@@ -374,18 +374,23 @@ void HM_HH_newHeapForRightChild(GC_state s, pointer parentp)
   assert(threadAndHeapOkay(s));
 
   GC_thread thread = getThreadCurrent(s);
-  HM_HierarchicalHeap parent = (HM_HierarchicalHeap)parentp;
-  HM_HierarchicalHeap child = thread->hierarchicalHeap;
+  // HM_HierarchicalHeap parent = (HM_HierarchicalHeap)parentp;
+  HM_HierarchicalHeap hh = thread->hierarchicalHeap;
 
-  if (parent == child) {
+  if (thread->currentDepth > HM_HH_getDepth(hh)) {
     /** Left child didn't allocate enough to force a new heap, so no big
       * deal. Can keep reusing the parent.
       */
+    assert(thread->currentDepth == HM_HH_getDepth(hh) + 1);
     assert(invariantForMutatorFrontier(s));
     assert(invariantForMutatorStack(s));
     return;
   }
 
+  HM_HierarchicalHeap child = hh;
+  HM_HierarchicalHeap parent = hh->nextAncestor;
+
+  assert(NULL != parent);
   assert(NULL == child->otherChild);
   assert(NULL == parent->otherChild);
   assert(HM_HH_getDepth(child) == 1 + HM_HH_getDepth(parent));
@@ -420,17 +425,17 @@ void HM_HH_mergeSibling(GC_state s, pointer parentp)
 
   GC_thread thread = getThreadCurrent(s);
   HM_HierarchicalHeap hh = thread->hierarchicalHeap;
-  HM_HierarchicalHeap parent = (HM_HierarchicalHeap)parentp;
+  // HM_HierarchicalHeap parent = (HM_HierarchicalHeap)parentp;
 
   /** We may not have instantiated a new heap for either child, due to lack
     * of allocations.
     */
-  if (hh == parent) {
-    assert(thread->currentDepth > HM_HH_getDepth(hh));
+  if (thread->currentDepth > HM_HH_getDepth(hh)) {
+    assert(thread->currentDepth == HM_HH_getDepth(hh) + 1);
     return;
   }
 
-  assert(hh->nextAncestor == parent);
+  HM_HierarchicalHeap parent = hh->nextAncestor;
   assert(HM_HH_getDepth(parent) == HM_HH_getDepth(hh) - 1);
 
   /** It's also possible we instantiated ONLY a right-side heap (but not left)
