@@ -208,6 +208,11 @@ int processAtMLton (GC_state s, int start, int argc, char **argv,
         } else if (0 == strcmp (arg, "sim-force-coherence")) {
           i++;
           s->controls->simForceCoherence = TRUE;
+          s->controls->simForceFlush = FALSE;
+        } else if (0 == strcmp (arg, "sim-force-coherence-with-flushing")) {
+          i++;
+          s->controls->simForceCoherence = TRUE;
+          s->controls->simForceFlush = TRUE;
         } else if (0 == strcmp (arg, "show-sources")) {
           showSources (s);
           exit (0);
@@ -443,6 +448,7 @@ int GC_init (GC_state s, int argc, char **argv) {
 
   s->controls->freeListCoalesce = FALSE;
 
+  s->controls->simForceFlush = TRUE;
   s->controls->simForceCoherence = FALSE;
 
   s->globalCumulativeStatistics = newGlobalCumulativeStatistics();
@@ -558,6 +564,11 @@ void GC_lateInit(GC_state s) {
   HH_EBR_init(s);
 
   initLocalBlockAllocator(s, initGlobalBlockAllocator(s));
+
+  printf("marking ward? %s\n",
+    (s->controls->simForceCoherence ? "no" : "yes"));
+  printf("flushing caches? %s\n",
+    (s->controls->simForceFlush ? "yes" : "no"));
 
   s->nextChunkAllocSize = s->controls->allocChunkSize;
 

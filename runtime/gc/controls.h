@@ -73,6 +73,7 @@ struct GC_controls {
   size_t traceBufferSize;
 
   bool simForceCoherence;
+  bool simForceFlush;
 };
 
 #endif /* (defined (MLTON_GC_INTERNAL_TYPES)) */

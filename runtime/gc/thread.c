@@ -27,10 +27,15 @@ void GC_HH_flushCache() {
        chunk != NULL;
        chunk = chunk->nextChunk)
   {
-    if (!s->controls->simForceCoherence) {
-      void* start = HM_getChunkStart(chunk);
-      void* stop = HM_getChunkLimit(chunk);
+    void* start = HM_getChunkStart(chunk);
+    void* stop = HM_getChunkLimit(chunk);
+
+    if (s->controls->simForceFlush) {
       __builtin___clear_cache(start, stop);
+    }
+
+    if (!s->controls->simForceCoherence) {
+      assert(s->controls->simForceFlush);
       SimRemoveIncoherentRegion((uintptr_t)(start), (uintptr_t)(stop));
     }
   }
