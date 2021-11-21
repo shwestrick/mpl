@@ -938,8 +938,30 @@ void HM_HH_cancelCC(GC_state s, pointer threadp, pointer hhp) {
   return;
 }
 
+// ===========================================================================
 
-// =============================================================================
+static void incrementCountForNumObjptrs(
+  __attribute__((unused)) GC_state s,
+  __attribute__((unused)) objptr *opp,
+  void *rawArgs)
+{
+  (*(size_t*)rawArgs)++;
+}
+
+size_t numObjptrsInStack(GC_state s, objptr stack) {
+  size_t count = 0;
+  struct GC_foreachObjptrClosure c =
+    {.fun = incrementCountForNumObjptrs, .env = &count};
+  foreachObjptrInObject(
+    s,
+    objptrToPointer(stack, NULL),
+    &trueObjptrPredicateClosure,
+    &c,
+    FALSE);
+  return count;
+}
+
+// ===========================================================================
 
 Bool HM_HH_registerCont(pointer kl, pointer kr, pointer k, pointer threadp) {
   GC_state s = pthread_getspecific(gcstate_key);
@@ -983,6 +1005,8 @@ Bool HM_HH_registerCont(pointer kl, pointer kr, pointer k, pointer threadp) {
   assert(HM_getLevelHead(HM_getChunkOf(k)) == hh);
   assert(HM_HH_getConcurrentPack(hh) != NULL);
 
+  size_t currentGapSize = HM_getChunkSizePastFrontier(thread->currentChunk);
+
   HM_HH_getConcurrentPack(hh)->snapLeft = pointerToObjptr(kl, NULL);
   HM_HH_getConcurrentPack(hh)->snapRight = pointerToObjptr(kr, NULL);
   HM_HH_getConcurrentPack(hh)->snapTemp = pointerToObjptr(k, NULL);
@@ -1014,10 +1038,20 @@ Bool HM_HH_registerCont(pointer kl, pointer kr, pointer k, pointer threadp) {
   assert(invariantForMutatorFrontier (s));
   assert(invariantForMutatorStack (s));
 
+  size_t numRootsInStack = numObjptrsInStack(s, snapstack);
+  size_t stackSize =
+    sizeofStackMinimumReserved(s, (GC_stack)objptrToPointer(snapstack, NULL));
+  bool rootsWouldFit =
+    (numRootsInStack * sizeof(objptr)) <= currentGapSize;
+
   LOG(LM_CC_COLLECTION, LL_INFO,
-    "registered CC for heap %p at depth %u",
+    "registered CC for heap %p at depth %u; snapshot stack size %zu contains %zu ptrs; gap %zu; fits? %s",
     (void*)hh,
-    HM_HH_getDepth(hh));
+    HM_HH_getDepth(hh),
+    stackSize,
+    numRootsInStack,
+    currentGapSize,
+    rootsWouldFit? "YES" : "NO");
 
   return TRUE;
 }
