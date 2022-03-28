@@ -169,12 +169,44 @@ pointer getTransitivePtr(pointer p, ConcurrentCollectArgs* args) {
   return p;
 }
 
+#if 0
 void markObj(pointer p) {
   __sync_fetch_and_xor(getHeaderp(p), MARK_MASK);
   // GC_header* headerp = getHeaderp(p);
   // GC_header header = *headerp;
   // header ^= MARK_MASK;
   // *headerp = header;
+}
+#endif
+
+bool tryMarkObj(pointer p) {
+  GC_header old = getHeader(p);
+  while ((MARK_MASK & old) != MARK_MASK) {
+    GC_header new = old ^ MARK_MASK;
+    bool success = __sync_bool_compare_and_swap(getHeaderp(p), old, new);
+    if (success) {
+      assert(CC_isPointerMarked(p));
+      return TRUE;
+    }
+    old = getHeader(p);
+  }
+  assert(CC_isPointerMarked(p));
+  return FALSE;
+}
+
+bool tryUnmarkObj(pointer p) {
+  GC_header old = getHeader(p);
+  while ((MARK_MASK & old) == MARK_MASK) {
+    GC_header new = old ^ MARK_MASK;
+    bool success = __sync_bool_compare_and_swap(getHeaderp(p), old, new);
+    if (success) {
+      assert(!CC_isPointerMarked(p));
+      return TRUE;
+    }
+    old = getHeader(p);
+  }
+  assert(!CC_isPointerMarked(p));
+  return FALSE;
 }
 
 // This function is exactly the same as in chunk.c.
@@ -322,8 +354,7 @@ void tryMarkAndAddToWorkList(
   if (!isInScope)
     return;
 
-  if (!CC_isPointerMarked(p)) {
-    markObj(p);
+  if (tryMarkObj(p)) {
     args->bytesSaved += sizeofObject(s, p);
     assert(CC_isPointerMarked(p));
     CC_workList_push(s, &(args->worklist), op);
@@ -345,9 +376,8 @@ void tryUnmarkAndAddToWorkList(
     return;
   }
 
-  if (CC_isPointerMarked(p)) {
+  if (tryUnmarkObj(p)) {
     assert(isChunkInToSpace(chunk, args));
-    markObj(p);
     assert(!CC_isPointerMarked(p));
     CC_workList_push(s, &(args->worklist), op);
   }
@@ -531,9 +561,8 @@ void forceForward(GC_state s, objptr *opp, void* rawArgs) {
 
   bool saved = saveNoForward(s, p, rawArgs);
 
-  if(saved && !CC_isPointerMarked(p)) {
+  if (saved && tryMarkObj(p)) {
     assert(getTransitivePtr(p, rawArgs) == p);
-    markObj(p);
     assert(CC_isPointerMarked(p));
     args->bytesSaved += sizeofObject(s, p);
   }
@@ -549,9 +578,8 @@ void forceUnmark (GC_state s, objptr* opp, void* rawArgs) {
 
   assert(isObjptr(op));
 
-  if(CC_isPointerMarked(p)){
+  if (tryUnmarkObj(p)) {
     assert(getTransitivePtr(p, rawArgs) == p);
-    markObj(p);
     assert(!CC_isPointerMarked(p));
   }
 
