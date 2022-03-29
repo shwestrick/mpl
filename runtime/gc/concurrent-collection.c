@@ -209,44 +209,18 @@ bool tryUnmarkObj(pointer p) {
   return FALSE;
 }
 
-// This function is exactly the same as in chunk.c.
-// The only difference is, it doesn't NULL the levelHead of the unlinking chunk.
-// TODO: replace with HM_unlinkChunkPreserveLevelHead (see chunk.c)
-void CC_HM_unlinkChunk(HM_chunkList list, HM_chunk chunk) {
-  // assert(chunkIsInList(chunk, list));
-
-  if (NULL == chunk->prevChunk) {
-    assert(list->firstChunk == chunk);
-    list->firstChunk = chunk->nextChunk;
-  } else {
-    assert(list->firstChunk != chunk);
-    chunk->prevChunk->nextChunk = chunk->nextChunk;
-  }
-
-  if (NULL == chunk->nextChunk) {
-    assert(list->lastChunk == chunk);
-    list->lastChunk = chunk->prevChunk;
-  } else {
-    assert(list->lastChunk != chunk);
-    chunk->nextChunk->prevChunk = chunk->prevChunk;
-  }
-
-  list->size -= HM_getChunkSize(chunk);
-  list->usedSize -= HM_getChunkUsedSize(chunk);
-
-  chunk->prevChunk = NULL;
-  chunk->nextChunk = NULL;
-}
-
 void saveChunk(HM_chunk chunk, ConcurrentCollectArgs* args) {
-  CC_HM_unlinkChunk(args->origList, chunk);
-  HM_appendChunk(args->repList, chunk);
+  // CC_HM_unlinkChunk(args->origList, chunk);
+  // HM_appendChunk(args->repList, chunk);
 
+  /** NOTE: when parallelized, this assert may fail (due to concurrent
+    * updates of tmpHeap for multiple objects in the chunk traced
+    * concurrently) */
   assert(chunk->tmpHeap == args->fromHead);
   chunk->tmpHeap = args->toHead;
 
-  HM_assertChunkListInvariants(args->origList);
-  HM_assertChunkListInvariants(args->repList);
+  // HM_assertChunkListInvariants(args->origList);
+  // HM_assertChunkListInvariants(args->repList);
 }
 
 bool saveNoForward(
@@ -1102,6 +1076,20 @@ size_t CC_collectWithRoots(
   HM_freeChunksInList(s, removedFromCCBag);
 
   assert(CC_workList_isEmpty(s, &(lists.worklist)));
+
+
+  // move saved chunks
+  assert(NULL == HM_getChunkListFirstChunk(repList));
+  for (HM_chunk chunkCursor = HM_getChunkListFirstChunk(origList);;) {
+    if (NULL == chunkCursor) break;
+    HM_chunk nextChunk = chunkCursor->nextChunk;
+    if (isChunkInToSpace(chunkCursor, &lists)) {
+      HM_unlinkChunkPreserveLevelHead(origList, chunkCursor);
+      HM_appendChunk(repList, chunkCursor);
+    }
+    chunkCursor = nextChunk;
+  }
+
 
 #if ASSERT2 // just contains code that is sometimes useful for debugging.
   HM_assertChunkListInvariants(origList);
