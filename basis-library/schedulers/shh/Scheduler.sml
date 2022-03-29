@@ -28,6 +28,9 @@ struct
   | Continuation of Thread.t * int
   | GCTask of gctask_data
 
+  fun ccCollect (t, hh) =
+    HH.collectFinish (HH.collectBegin (t, !hh))
+
   structure DE = MLton.Thread.Disentanglement
 
   local
@@ -497,7 +500,7 @@ struct
         | SOME (thread, hh) =>
             ( (*dbgmsg' (fn _ => "back in sched; found GC task")
             ;*) setGCTask myId NONE
-            ; HH.collectThreadRoot (thread, !hh)
+            ; ccCollect (thread, hh)
             ; if popDiscard () then
                 ( (*dbgmsg' (fn _ => "resume task thread")
                 ;*) threadSwitch thread
@@ -516,7 +519,7 @@ struct
         in
           case task of
             GCTask (thread, hh) =>
-              ( HH.collectThreadRoot (thread, !hh)
+              ( ccCollect (thread, hh)
               ; acquireWork ()
               )
           | Continuation (thread, depth) =>

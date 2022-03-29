@@ -60,6 +60,8 @@ signature MLTON_THREAD =
           (*Collect the depth = 1 HH of this thread*)
           val cancelCC: thread * Word64.word -> unit
           val collectThreadRoot : thread * Word64.word -> unit
+          val collectBegin: thread * Word64.word -> MLtonPointer.t
+          val collectFinish: MLtonPointer.t -> unit
           val getRoot : thread -> Word64.word
 
 

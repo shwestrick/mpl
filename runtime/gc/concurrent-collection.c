@@ -649,17 +649,26 @@ bool claimHeap(HM_HierarchicalHeap heap) {
   return TRUE;
 }
 
-void CC_collectAtRoot(pointer threadp, pointer hhp) {
-  GC_state s = pthread_getspecific (gcstate_key);
+
+struct CC_collectAtRoot_info {
+  HM_HierarchicalHeap heap;
+  size_t beforeSize;
+  size_t live;
+};
+
+
+struct CC_collectAtRoot_info *
+CC_collectAtRoot_begin(GC_state s, pointer threadp, pointer hhp)
+{
   GC_thread thread = threadObjptrToStruct(s, pointerToObjptr(threadp, NULL));
   HM_HierarchicalHeap heap = (HM_HierarchicalHeap)hhp;
 
   if (!checkLocalScheduler(s) || thread->currentDepth<=0) {
-    return;
+    return NULL;
   }
 
   if (!claimHeap(heap)) {
-    return;
+    return NULL;
   }
 
   // for exiting even if CC is going on.
@@ -675,10 +684,23 @@ void CC_collectAtRoot(pointer threadp, pointer hhp) {
   }
 #endif
 
-  size_t beforeSize = HM_getChunkListSize(HM_HH_getChunkList(heap));
-  size_t live = CC_collectWithRoots(s, heap, thread);
-  size_t afterSize = HM_getChunkListSize(HM_HH_getChunkList(heap));
+  struct CC_collectAtRoot_info *info = malloc(sizeof(struct CC_collectAtRoot_info));
+  info->heap = heap;
+  info->beforeSize = HM_getChunkListSize(HM_HH_getChunkList(heap));
+  info->live = CC_collectWithRoots(s, heap, thread);
+  return info;
+}
 
+
+void CC_collectAtRoot_finish(GC_state s, struct CC_collectAtRoot_info *info)
+{
+  if (NULL == info) return;
+
+  HM_HierarchicalHeap heap = info->heap;
+  size_t beforeSize = info->beforeSize;
+  size_t live = info->live;
+
+  size_t afterSize = HM_getChunkListSize(HM_HH_getChunkList(heap));
   size_t diff = beforeSize > afterSize ? beforeSize - afterSize : 0;
 
   LOG(LM_CC_COLLECTION, LL_INFO,
@@ -694,6 +716,16 @@ void CC_collectAtRoot(pointer threadp, pointer hhp) {
   __atomic_store_n(&(HM_HH_getConcurrentPack(heap)->ccstate), CC_DONE, __ATOMIC_SEQ_CST);
   // s->amInCC = FALSE;
   s->currentCCTargetHH = NULL;
+
+  free(info);
+}
+
+
+void CC_collectAtRoot(pointer threadp, pointer hhp) {
+  GC_state s = pthread_getspecific (gcstate_key);
+  struct CC_collectAtRoot_info *info =
+    CC_collectAtRoot_begin(s, threadp, hhp);
+  CC_collectAtRoot_finish(s, info);
 }
 
 uint32_t minPrivateLevel(GC_state s) {

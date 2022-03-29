@@ -433,6 +433,9 @@ structure Thread =
       val resetList: thread -> unit =  _import "HM_HH_resetList" runtime private: thread -> unit;
       val collectThreadRoot = _import "CC_collectAtRoot" runtime private: thread * Word64.word -> unit;
 
+      val collectBegin = _import "CC_collectAtRoot_begin" runtime private: GCState.t * thread * Word64.word -> Pointer.t;
+      val collectFinish = _import "CC_collectAtRoot_finish" runtime private: GCState.t * Pointer.t -> unit;
+
       val getDepth = _import "GC_HH_getDepth" runtime private: thread -> Word32.word;
       val getRoot = _import "HM_HH_getRoot" runtime private: thread -> Word64.word;
 

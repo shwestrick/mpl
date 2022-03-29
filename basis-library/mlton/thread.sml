@@ -80,6 +80,8 @@ struct
 
   fun cancelCC (t, hh) = Prim.cancelCC (gcState (), t, hh)
   fun collectThreadRoot (t, hh) = Prim.collectThreadRoot (t, hh)
+  fun collectBegin (t, hh) = Prim.collectBegin(gcState (), t, hh)
+  fun collectFinish p = Prim.collectFinish(gcState (), p)
   fun getRoot t = Prim.getRoot t
 
   fun getDepth t = Word32.toInt (Prim.getDepth t)
