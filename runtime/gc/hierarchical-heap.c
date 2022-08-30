@@ -486,6 +486,8 @@ HM_HierarchicalHeap HM_HH_new(GC_state s, uint32_t depth)
   HM_HH_getConcurrentPack(hh)->rootList = NULL;
   HM_HH_getConcurrentPack(hh)->snapLeft = BOGUS_OBJPTR;
   HM_HH_getConcurrentPack(hh)->snapRight = BOGUS_OBJPTR;
+  HM_HH_getConcurrentPack(hh)->snapTemp = BOGUS_OBJPTR;
+  HM_HH_getConcurrentPack(hh)->snapWSQueue = BOGUS_OBJPTR;
   HM_HH_getConcurrentPack(hh)->stack = BOGUS_OBJPTR;
   HM_HH_getConcurrentPack(hh)->ccstate = CC_UNREG;
   HM_HH_getConcurrentPack(hh)->bytesSurvivedLastCollection = 0;
@@ -888,6 +890,40 @@ objptr copyCurrentStack(GC_state s, GC_thread thread) {
   return pointerToObjptr((pointer)stack, NULL);
 }
 
+
+objptr copyCurrentWSQueue(GC_state s, GC_thread thread) {
+  HM_HierarchicalHeap hh = thread->hierarchicalHeap;
+  pointer qp = objptrToPointer(s->wsQueue, NULL);
+
+  size_t objectBytes;
+  size_t copyBytes;
+  size_t metaDataBytes;
+  computeObjectCopyParameters(s, qp, &objectBytes, &copyBytes, &metaDataBytes);
+
+  // LOG(LM_ALLOCATION, LL_FORCE,
+  //   "copyCurrentWSQueue %zu %zu %zu",
+  //   objectBytes,
+  //   copyBytes,
+  //   metaDataBytes);
+
+  pointer copyPointer = copyObject(
+    qp - metaDataBytes,
+    objectBytes,
+    copyBytes,
+    hh);
+
+  pointer qpNew = copyPointer + metaDataBytes;
+  if (copyPointer == HM_getChunkStart(HM_getChunkOf(qpNew))) {
+    HM_getChunkOf(qpNew)->mightContainMultipleObjects = FALSE;
+  }
+  else {
+    DIE("impossible. wsqueue should be big enough to mandate fresh chunk");
+  }
+
+  return pointerToObjptr(qpNew, NULL);
+}
+
+
 pointer HM_HH_getRoot(ARG_USED_FOR_ASSERT pointer threadp) {
   GC_state s = pthread_getspecific(gcstate_key);
 
@@ -1013,6 +1049,8 @@ Bool HM_HH_registerCont(pointer kl, pointer kr, pointer k, pointer threadp) {
     return FALSE;
   }
 
+  assert(thread->hierarchicalHeap->depth == thread->currentDepth);
+
   assert(HM_getLevelHead(HM_getChunkOf(kl)) == hh);
   assert(HM_getLevelHead(HM_getChunkOf(kr)) == hh);
   assert(HM_getLevelHead(HM_getChunkOf(k)) == hh);
@@ -1021,6 +1059,8 @@ Bool HM_HH_registerCont(pointer kl, pointer kr, pointer k, pointer threadp) {
   HM_HH_getConcurrentPack(hh)->snapLeft = pointerToObjptr(kl, NULL);
   HM_HH_getConcurrentPack(hh)->snapRight = pointerToObjptr(kr, NULL);
   HM_HH_getConcurrentPack(hh)->snapTemp = pointerToObjptr(k, NULL);
+  // objptr snapWSQueue = copyCurrentWSQueue(s, thread);
+  // HM_HH_getConcurrentPack(hh)->snapWSQueue = snapWSQueue;
   objptr snapstack = copyCurrentStack(s, thread);
   HM_HH_getConcurrentPack(hh)->stack = snapstack;
 
@@ -1028,6 +1068,9 @@ Bool HM_HH_registerCont(pointer kl, pointer kr, pointer k, pointer threadp) {
   HM_assertChunkListInvariants(HM_HH_getChunkList(hh));
   pointer snapstackp = objptrToPointer(snapstack, NULL);
   assert(listContainsChunk(HM_HH_getChunkList(hh), HM_getChunkOf(snapstackp)));
+
+  // pointer snapWSQueuep = objptrToPointer(snapWSQueue, NULL);
+  // assert(listContainsChunk(HM_HH_getChunkList(hh), HM_getChunkOf(snapWSQueuep)));
 #endif
 
   CC_clearStack(s, HM_HH_getConcurrentPack(hh));

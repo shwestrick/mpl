@@ -80,7 +80,36 @@ bool isObjptrInToSpace(objptr op, struct ForwardHHObjptrArgs *args);
 
 objptr relocateObject(GC_state s, objptr obj, HM_HierarchicalHeap tgtHeap, struct ForwardHHObjptrArgs *args);
 
-pointer copyObject(pointer p, size_t objectSize, size_t copySize, HM_HierarchicalHeap tgtHeap);
+
+/**
+ * Compute the size of the object, how much of it has to be copied, as well as
+ * how much metadata it has.
+ *
+ * @param s GC state
+ * @param p The pointer to copy
+ * @param objectSize Where to store the size of the object (in bytes)
+ * @param copySize Where to store the number of bytes to copy
+ * @param metaDataSize Where to store the metadata size (in bytes)
+ *
+ * @return the tag of the object
+ */
+GC_objectTypeTag computeObjectCopyParameters(
+  GC_state s,
+  pointer p,
+  size_t *objectSize,
+  size_t *copySize,
+  size_t *metaDataSize);
+
+// NOTE: p should point to front of object metadata. copySize is how much
+// data should be copied, including metadata. objectSize is the total size
+// of the object, including metadata. Usually, copySize == objectSize. But
+// it's possible copySize < objectSize, for stack objects.
+pointer copyObject(
+  pointer p,
+  size_t objectSize,
+  size_t copySize,
+  HM_HierarchicalHeap tgtHeap);
+
 #endif /* MLTON_GC_INTERNAL_FUNCS */
 
 #endif /* HIERARCHICAL_HEAP_H_ */

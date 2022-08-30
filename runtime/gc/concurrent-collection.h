@@ -47,6 +47,7 @@ typedef struct ConcurrentPackage {
 	objptr snapLeft;
 	objptr snapRight;
 	objptr snapTemp;
+  objptr snapWSQueue;
 	// bool isCollecting;
 	bool shouldCollect;
 	enum CCState ccstate;

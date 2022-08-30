@@ -545,10 +545,10 @@ void freeBlocks(GC_state s, Blocks bs, writeFreedBlockInfoFnClosure f) {
   pointer blockStart = (pointer)bs;
 
 #if ASSERT
-  if (!s->controls->debugKeepFreeBlocks) {
+  // if (!s->controls->debugKeepFreeBlocks) {
     /** Clear out memory to try and catch errors quickly... */
     memset((void*)bs, 0xBF, numBlocks * s->controls->blockSize);
-  }
+  // }
 #endif
 
   if (s->controls->debugKeepFreeBlocks) {

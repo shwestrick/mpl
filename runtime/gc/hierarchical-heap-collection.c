@@ -58,27 +58,10 @@ void checkRememberedEntry(GC_state s, HM_remembered remElem, void* args);
 bool hhContainsChunk(HM_HierarchicalHeap hh, HM_chunk theChunk);
 #endif
 
-/**
- * Compute the size of the object, how much of it has to be copied, as well as
- * how much metadata it has.
- *
- * @param s GC state
- * @param p The pointer to copy
- * @param objectSize Where to store the size of the object (in bytes)
- * @param copySize Where to store the number of bytes to copy
- * @param metaDataSize Where to store the metadata size (in bytes)
- *
- * @return the tag of the object
- */
-GC_objectTypeTag computeObjectCopyParameters(GC_state s, pointer p,
-                                             size_t *objectSize,
-                                             size_t *copySize,
-                                             size_t *metaDataSize);
-
-pointer copyObject(pointer p,
-                   size_t objectSize,
-                   size_t copySize,
-                   HM_HierarchicalHeap tgtHeap);
+// pointer copyObject(pointer p,
+//                    size_t objectSize,
+//                    size_t copySize,
+//                    HM_HierarchicalHeap tgtHeap);
 
 /**
  * ObjptrPredicateFunction for skipping stacks and threads in the hierarchical

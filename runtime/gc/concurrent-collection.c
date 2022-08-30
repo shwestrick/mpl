@@ -43,12 +43,14 @@ void saveChunk(HM_chunk chunk, ConcurrentCollectArgs* args);
 enum CC_freedChunkType {
   CC_FREED_REMSET_CHUNK,
   CC_FREED_STACK_CHUNK,
+  CC_FREED_WSQUEUE_CHUNK,
   CC_FREED_NORMAL_CHUNK
 };
 
 static const char* CC_freedChunkTypeToString[] = {
   "CC_FREED_REMSET_CHUNK",
   "CC_FREED_STACK_CHUNK",
+  "CC_FREED_WSQUEUE_CHUNK",
   "CC_FREED_NORMAL_CHUNK"
 };
 
@@ -971,6 +973,7 @@ size_t CC_collectWithRoots(
   forceForward(s, &(cp->snapLeft), &lists);
   forceForward(s, &(cp->snapRight), &lists);
   forceForward(s, &(cp->snapTemp), &lists);
+  // forceForward(s, &(cp->snapWSQueue), &lists);
   // forceForward(s, &(s->wsQueue), &lists);
   forceForward(s, &(cp->stack), &lists);
 
@@ -1030,6 +1033,7 @@ size_t CC_collectWithRoots(
   forceUnmark(s, &(cp->snapLeft), &lists);
   forceUnmark(s, &(cp->snapRight), &lists);
   forceUnmark(s, &(cp->snapTemp), &lists);
+  // forceUnmark(s, &(cp->snapWSQueue), &lists);
   // forceUnmark(s, &(s->wsQueue), &lists);
   forceUnmark(s, &(cp->stack), &lists);
 
@@ -1146,6 +1150,18 @@ size_t CC_collectWithRoots(
   HM_freeChunkWithInfo(s, stackChunk, &infoc);
   info.freedType = CC_FREED_NORMAL_CHUNK;
   cp->stack = BOGUS_OBJPTR;
+
+
+  // HM_chunk snapQueueChunk = HM_getChunkOf(objptrToPointer(cp->snapWSQueue, NULL));
+  // assert(!(snapQueueChunk->mightContainMultipleObjects));
+  // assert(HM_HH_getChunkList(HM_getLevelHead(snapQueueChunk)) == origList);
+  // assert(isChunkInList(snapQueueChunk, origList));
+  // HM_unlinkChunk(origList, snapQueueChunk);
+  // info.freedType = CC_FREED_WSQUEUE_CHUNK;
+  // HM_freeChunkWithInfo(s, snapQueueChunk, &infoc);
+  // info.freedType = CC_FREED_NORMAL_CHUNK;
+  // cp->snapWSQueue = BOGUS_OBJPTR;
+
 
 // #if ASSERT
 //   struct HM_foreachDownptrClosure checkRemEntryClosure =
