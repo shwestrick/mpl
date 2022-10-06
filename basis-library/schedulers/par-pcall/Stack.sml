@@ -1,20 +1,31 @@
-structure Stack:
+functor MkStack(type elem):
 sig
-  type 'a t
+  type elem = elem
+  type t
 
-  val new: unit -> 'a t
-  val push: 'a * 'a t -> unit
-  val pop: 'a t -> 'a option
+  val new: unit -> t
+  val push: elem * t -> unit
+  val pop: t -> elem option
 
-  val popOldest: 'a t -> 'a option
-  val peekOldest: 'a t -> 'a option
+  val popOldest: t -> elem option
+  val peekOldest: t -> elem option
 
-  val currentSize: 'a t -> int
+  val currentSize: t -> int
+
+  val register: MLton.Thread.Basic.t * t -> unit
+  val current: MLton.Thread.Basic.t -> t
+
+  val same: t * t -> bool
 end =
 struct
 
-  datatype 'a t =
-    T of {start: int ref, stop: int ref, data: 'a option array}
+  type elem = elem
+
+  val updNB = MLton.HM.arrayUpdateNoBarrier
+  val subNB = MLton.HM.arraySubNoBarrier
+
+  datatype t =
+    T of {start: int ref, stop: int ref, data: elem option array}
 
   fun new () =
     T { start = ref 0
@@ -22,39 +33,42 @@ struct
       , data = Array.array (100, NONE)
       }
 
+  fun register (t, j) =
+    MLton.Thread.HierarchicalHeap.registerJStack (t, ref j)
+
+  fun current t : t =
+    let
+      val r: t ref = MLton.Thread.HierarchicalHeap.currentJStack t
+    in
+      !r
+    end
+
+
+  fun same (T j1, T j2) =
+    #start j1 = #start j2 andalso
+    #stop j1 = #stop j2 andalso
+    #data j1 = #data j2
+
+
   fun push (x, T {start, stop, data}) =
     let
       val i = !stop
     in
-      Array.update (data, i, SOME x);
+      updNB (data, i, SOME x);
       stop := i + 1
     end
 
-(*
-  fun pop (T {start, stop, data}) =
-    let
-      val i = !start
-      val j = !stop
-      val result = Array.sub (data, j-1)
-    in
-      Array.update (data, j-1, NONE);
-      stop := j-1;
-      if i <> j then () else start := j-1;
-      result
-    end
-*)
 
   fun pop (T {start, stop, data}) =
     let
       val i = !start
       val j = !stop
-      (* val result = Array.sub (data, j-1) *)
     in
       if i >= j then NONE else
       let
-        val result = Array.sub (data, j-1)
+        val result = subNB (data, j-1)
       in
-        Array.update (data, j-1, NONE);
+        updNB (data, j-1, NONE);
         stop := j-1;
         if i >= j-1 then (start := 0; stop := 0) else ();
         result
@@ -68,9 +82,9 @@ struct
     in
       if i >= j then NONE else
       let
-        val result = Array.sub (data, i)
+        val result = subNB (data, i)
       in
-        Array.update (data, i, NONE);
+        updNB (data, i, NONE);
         start := i+1;
         if i+1 >= j then (start := 0; stop := 0) else ();
         result
@@ -82,7 +96,7 @@ struct
       val i = !start
       val j = !stop
     in
-      if i >= j then NONE else Array.sub (data, i)
+      if i >= j then NONE else subNB (data, i)
     end
 
   fun currentSize (T {start, stop, ...}) =

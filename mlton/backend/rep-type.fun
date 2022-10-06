@@ -525,6 +525,8 @@ structure ObjectType =
                      Bits.toBytes (Control.Target.Size.cpointer ())
                   val bytesCurrentChunk =
                      Bits.toBytes (Control.Target.Size.cpointer ())
+                  val bytesJStack =
+                     Bits.toBytes (Control.Target.Size.cpointer ())
                   val bytesStack =
                      Bits.toBytes (Type.width (Type.stack ()))
 
@@ -546,6 +548,7 @@ structure ObjectType =
                         bytesSurvivedLastCollection +
                         bytesHierarchicalHeap +
                         bytesCurrentChunk +
+                        bytesJStack +
                         bytesStack
                      end
 
@@ -574,6 +577,7 @@ structure ObjectType =
                    Type.csize (),
                    Type.cpointer (),
                    Type.cpointer (),
+                   Type.cpointer (), (* SAM_NOTE: hack for now; should be objptr... *)
                    Type.stack ()]
                )
             val components =

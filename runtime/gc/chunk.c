@@ -608,7 +608,7 @@ void HM_updateChunkFrontier(HM_chunk chunk, pointer frontier) {
 
 #if ASSERT
 void HM_assertChunkListInvariants(HM_chunkList chunkList) {
-  // return;
+  return;
   size_t size = 0;
   size_t usedSize = 0;
   HM_chunk chunk = chunkList->firstChunk;

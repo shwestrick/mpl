@@ -242,6 +242,18 @@ objptr GC_HH_forkThread(GC_state s, pointer threadp, bool *success) {
 }
 
 
+void GC_HH_registerJSTack(GC_state s, pointer threadp, pointer jstackp) {
+  GC_thread thread = threadObjptrToStruct(s, pointerToObjptr(threadp, NULL));
+  thread->jstack = jstackp;
+}
+
+
+objptr GC_HH_currentJSTack(GC_state s, pointer threadp) {
+  GC_thread thread = threadObjptrToStruct(s, pointerToObjptr(threadp, NULL));
+  return pointerToObjptr(thread->jstack, NULL);
+}
+
+
 #endif /* MLTON_GC_INTERNAL_BASIS */
 
 #if (defined (MLTON_GC_INTERNAL_FUNCS))

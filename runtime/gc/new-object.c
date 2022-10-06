@@ -110,6 +110,7 @@ GC_thread newThread(GC_state s, size_t reserved) {
   thread->bytesSurvivedLastCollection = 0;
   thread->hierarchicalHeap = NULL;
   thread->currentChunk = NULL;
+  thread->jstack = NULL;
   thread->stack = pointerToObjptr((pointer)stack, NULL);
   thread->disentangledDepth = INT32_MAX;
 
@@ -192,6 +193,7 @@ GC_thread newThreadWithHeap(
   thread->bytesSurvivedLastCollection = 0;
   thread->hierarchicalHeap = hh;
   thread->currentChunk = tChunk;
+  thread->jstack = NULL;
   thread->stack = pointerToObjptr((pointer)stack, NULL);
   thread->disentangledDepth = INT32_MAX;
 

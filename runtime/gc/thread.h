@@ -67,6 +67,7 @@ typedef struct GC_thread {
   /* The "current" chunk of the heap, where the frontier is pointing */
   HM_chunk currentChunk;
 
+  pointer jstack; // SAM_NOTE: hack for now; should be objptr...
   objptr stack;
 } __attribute__ ((packed)) *GC_thread;
 
@@ -86,6 +87,7 @@ COMPILE_TIME_ASSERT(GC_thread__packed,
                     sizeof(size_t) +  // bytesSurvivedLastCollection
                     sizeof(void*) +   // hierarchicalHeap
                     sizeof(void*) +   // currentCheck
+                    sizeof(void*) +  // jstack
                     sizeof(objptr));  // stack
 
 #else
@@ -102,6 +104,7 @@ COMPILE_TIME_ASSERT(GC_thread__packed,
                     sizeof(size_t) +  // bytesSurvivedLastCollection
                     sizeof(void*) +   // hierarchicalHeap
                     sizeof(void*) +   // currentCheck
+                    sizeof(void*) +  // jstack
                     sizeof(objptr));  // stack
 
 #endif // DETECT_ENTANGLEMENT
@@ -134,6 +137,9 @@ PRIVATE objptr GC_HH_forkThread(GC_state s, pointer thread, bool *success);
 PRIVATE void GC_HH_moveNewThreadToDepth(pointer thread, Word32 depth);
 
 PRIVATE Bool GC_HH_checkFinishedCCReadyToJoin(GC_state s);
+
+PRIVATE void GC_HH_registerJStack(GC_state s, pointer thread, pointer jstack);
+PRIVATE objptr GC_HH_currentJStack(GC_state s, pointer thread);
 
 #endif /* MLTON_GC_INTERNAL_BASIS */
 

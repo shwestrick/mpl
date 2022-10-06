@@ -107,6 +107,12 @@ struct
       else
         NONE
     end
+
+  fun registerJStack (t, j) =
+    Prim.registerJStack (gcState (), t, j)
+
+  fun currentJStack t =
+    Prim.currentJStack (gcState (), t)
 end
 
 structure Disentanglement =

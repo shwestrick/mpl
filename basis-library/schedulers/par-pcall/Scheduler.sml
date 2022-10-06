@@ -198,9 +198,11 @@ struct
       old
     end
 
+  type stackelem = joinslot_id * (Thread.t -> bool)
+  structure Stack = MkStack(type elem = stackelem)
+
   datatype joinslot_stack =
-    JStack of
-      { stack: (joinslot_id * (Thread.t -> bool)) Stack.t }
+    JStack of { stack: Stack.t }
 
   fun maybeActivateOne s (t: Thread.t) =
     case Stack.peekOldest s of
@@ -222,43 +224,64 @@ struct
     ( dbgmsg' (fn _ => "set astack")
     ; Array.update (jstacks, myWorkerId (), SOME astack)
     )
-  fun jstackSetCurrentNew () =
+  fun jstackSetCurrentNew t =
     ( dbgmsg' (fn _ => "set fresh astack")
-    ; Array.update (jstacks, myWorkerId (), SOME (jstackNew ()))
+    ; let
+        val j as JStack {stack=jstack} = jstackNew ()
+      in
+        Stack.register (t, jstack);
+        Array.update (jstacks, myWorkerId (), SOME j)
+      end
     )
 
-  fun jstackMaybeGetCurrent () =
-    Array.sub (jstacks, myWorkerId ())
-
-  fun jstackGetCurrent () =
+  fun jstackMaybeGetCurrent t =
     case Array.sub (jstacks, myWorkerId ()) of
-      SOME a => a
+      NONE => NONE
+    | SOME (j as JStack {stack=j1}) =>
+        let
+          val j2 = Stack.current t
+        in
+          if Stack.same (j1, j2) then () else
+            die (fn _ => "bug: Scheduler.jstackMaybeGetCurrent: mismatch");
+          SOME j
+        end
+
+  fun jstackGetCurrent t =
+    case Array.sub (jstacks, myWorkerId ()) of
+      SOME (j as JStack {stack=j1}) =>
+        let
+          val j2 = Stack.current t
+        in
+          if Stack.same (j1, j2) then () else
+            die (fn _ => "bug: Scheduler.jstackGetCurrent: mismatch");
+          j
+        end
     | NONE => die (fn _ => "bug: Scheduler.jstackGetCurrent: expected astack; found none")
 
-  fun jstackTakeCurrent () =
+  fun jstackTakeCurrent t =
     let
       val _ = Thread.atomicBegin ()
-      val a = jstackGetCurrent ()
+      val a = jstackGetCurrent t
     in
       Array.update (jstacks, myWorkerId (), NONE);
       Thread.atomicEnd ();
       a
     end
 
-  fun jstackPush x =
+  fun jstackPush t x =
     let
       val _ = Thread.atomicBegin ()
-      val JStack {stack, ...} = jstackGetCurrent ()
+      val JStack {stack, ...} = jstackGetCurrent t
       (* val c = !pushCounter *)
     in
       Stack.push (x, stack);
       Thread.atomicEnd ()
     end
 
-  fun jstackPop () =
+  fun jstackPop t =
     let
       val _ = Thread.atomicBegin ()
-      val JStack {stack, ...} = jstackGetCurrent ()
+      val JStack {stack, ...} = jstackGetCurrent t
       val result = Stack.pop stack
       val _ = dbgmsg'' (fn _ => "jstack size after pop: " ^ Int.toString (Stack.currentSize stack))
     in
@@ -268,7 +291,7 @@ struct
 
   fun handler msg =
     MLton.Signal.Handler.inspectInterrupted (fn thread: Thread.t =>
-      case jstackMaybeGetCurrent () of
+      case jstackMaybeGetCurrent thread of
         NONE =>
           dbgmsg' (fn _ => msg ^ ": no current astack")
       | SOME (JStack {stack, ...}) =>
@@ -297,8 +320,8 @@ struct
     type 'a t
     datatype 'a status = Empty | Full of 'a joinpoint
 
-    val make: ('a t -> Thread.t -> bool) -> 'a t
-    val cancel: 'a t -> 'a status
+    val make: Thread.t -> ('a t -> Thread.t -> bool) -> 'a t
+    val cancel: Thread.t -> 'a t -> 'a status
     val put: 'a t * 'a joinpoint -> unit
     val markUnsuccessful: 'a t -> unit
     val get: 'a t -> 'a joinpoint
@@ -308,21 +331,21 @@ struct
     datatype 'a status = Empty | Full of 'a joinpoint
     datatype 'a t = T of joinslot_id * ('a internal_status ref)
 
-    fun make (doSpawn: 'a t -> Thread.t -> bool) =
+    fun make t (doSpawn: 'a t -> Thread.t -> bool) =
       let
         val j: 'a internal_status ref = ref JNone
         val jid = nextJoinSlotId (myWorkerId ())
         val result = T (jid, j)
       in
         dbgmsg'' (fn _ => "making " ^ Word64.toString jid);
-        jstackPush (jid, doSpawn result);
+        jstackPush t (jid, doSpawn result);
         result
       end
 
-    fun cancel (T (jid, j)) =
+    fun cancel t (T (jid, j)) =
       ( ()
 
-      ; case jstackPop () of
+      ; case jstackPop t of
           NONE => ()
             (* (case !j of JSome _ => () | _ => die (fn _ => "scheduler bug: non-full popped join")) *)
         | SOME (jid', _) =>
@@ -617,7 +640,7 @@ struct
           ; dbgmsg' (fn _ => "switching to do some GC stuff")
           ; setGCTask (myWorkerId ()) gcTaskData (* This communicates with the scheduler thread *)
           ; let
-              val a = jstackTakeCurrent ()
+              val a = jstackTakeCurrent thread
             in
               push (Continuation (thread, newDepth))
               ; assertAtomic "syncGC before returnToSched" 1
@@ -767,7 +790,7 @@ struct
                   * in anticipation of other processor taking over (in the
                   * case that we return to sched)
                   *)
-                val a = jstackTakeCurrent ()
+                val a = jstackTakeCurrent thread
               in
                 if decrementHitsZero incounter then
                   ()
@@ -886,7 +909,8 @@ struct
     fun pcallFork (f: unit -> 'a, g: unit -> 'b) =
       let
         (* val _ = Thread.atomicBegin () *)
-        val j = JoinSlot.make spawn
+        val t = Thread.current ()
+        val j = JoinSlot.make t spawn
 
         fun leftSideSequentialCont fres = (
           (* (_import "XXYYZZ": unit -> unit;)(); *)
@@ -896,7 +920,7 @@ struct
            * fail.
            *)
            (*...... *)
-          case JoinSlot.cancel j of
+          case JoinSlot.cancel t j of
             JoinSlot.Empty =>
               ( ()
               (* ; assertAtomic "leftSideSequentialCont" 1 *)
@@ -913,7 +937,7 @@ struct
             val _ = Thread.atomicBegin ()
             val _ = assertAtomic "leftSideParCont" 1
           in
-            case JoinSlot.cancel j of
+            case JoinSlot.cancel t j of
               JoinSlot.Empty =>
                 die (fn _ => "scheduler bug: leftSideParCont empty joinslot")
             | JoinSlot.Full jp =>
@@ -934,7 +958,7 @@ struct
             val _ = dbgmsg'' (fn _ => "rightside begin at depth " ^ Int.toString depth)
             val J {leftSideThread, rightSideThread, rightSideResult, tidRight, incounter, ...} =
               JoinSlot.get j
-            val () = jstackSetCurrentNew ()
+            val () = jstackSetCurrentNew thread
             val () = DE.decheckSetTid tidRight
             val _ = Thread.atomicEnd()
 
@@ -954,7 +978,7 @@ struct
               * stack. If we end up switching to some other thread, then that
               * thread will reassign its own astack.
               *)
-            val _ = jstackTakeCurrent ()
+            val _ = jstackTakeCurrent thread
 
             val _ = assertAtomic "pcallFork rightside after jstackTake" 1
           in
@@ -1187,7 +1211,7 @@ struct
         die (fn _ => "scheduler bug: scheduler exited acquire-work loop")
       end
 
-  val _ = jstackSetCurrentNew ()
+  val _ = jstackSetCurrentNew originalThread
 
   val _ =
     MLton.Itimer.set (MLton.Itimer.Real,

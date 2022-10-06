@@ -398,6 +398,11 @@ structure Thread =
 
       val moveNewThreadToDepth = _import "GC_HH_moveNewThreadToDepth" runtime private: thread * Word32.word -> unit;
       val checkFinishedCCReadyToJoin = _import "GC_HH_checkFinishedCCReadyToJoin" runtime private: GCState.t -> bool;
+
+      val registerJStack = _import "GC_HH_registerJStack" runtime private:
+        GCState.t * thread * 'a ref -> unit;
+      val currentJStack = _import "GC_HH_currentJStack" runtime private:
+        GCState.t * thread -> 'a ref;
    end
 
 structure Weak =

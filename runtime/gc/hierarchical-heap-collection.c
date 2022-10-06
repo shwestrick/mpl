@@ -484,6 +484,17 @@ void HM_HHC_collectLocal(uint32_t desiredScope) {
    forwardHHObjptrArgs.objectsCopied,
    forwardHHObjptrArgs.stacksCopied);
 
+  // forward jstack hack
+  objptr jstack = pointerToObjptr(thread->jstack, NULL);
+  forwardHHObjptr(
+    s,
+    &jstack,
+    jstack,
+    &forwardHHObjptrArgs);
+  thread->jstack = objptrToPointer(jstack, NULL);
+
+  DIE("TODO: need to call foreachObjptrInObject on the jstack");
+
   /* forward thread itself */
   LOG(LM_HH_COLLECTION, LL_DEBUG,
     "Trying to forward current thread %p",
@@ -525,6 +536,19 @@ void HM_HHC_collectLocal(uint32_t desiredScope) {
       &forwardHHObjptrClosure,
       FALSE
     );
+
+    objptr jstack = pointerToObjptr(
+      threadObjptrToStruct(s, s->savedThreadDuringSignalHandler)->jstack,
+      NULL
+    );
+    forwardHHObjptr(
+      s,
+      &jstack,
+      jstack,
+      &forwardHHObjptrArgs
+    );
+    threadObjptrToStruct(s, s->savedThreadDuringSignalHandler)->jstack =
+      objptrToPointer(jstack, NULL);
 
     forwardHHObjptr(
       s,
