@@ -139,7 +139,7 @@ PRIVATE void GC_HH_moveNewThreadToDepth(pointer thread, Word32 depth);
 PRIVATE Bool GC_HH_checkFinishedCCReadyToJoin(GC_state s);
 
 PRIVATE void GC_HH_registerJStack(GC_state s, pointer thread, pointer jstack);
-PRIVATE objptr GC_HH_currentJStack(GC_state s, pointer thread);
+PRIVATE Bool GC_HH_currentJStack(GC_state s, pointer thread, objptr *output);
 
 #endif /* MLTON_GC_INTERNAL_BASIS */
 

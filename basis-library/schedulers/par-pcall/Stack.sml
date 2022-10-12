@@ -13,7 +13,7 @@ sig
   val currentSize: t -> int
 
   val register: MLton.Thread.Basic.t * t -> unit
-  val current: MLton.Thread.Basic.t -> t
+  val current: MLton.Thread.Basic.t -> t option
 
   val same: t * t -> bool
 end =
@@ -33,15 +33,15 @@ struct
       , data = Array.array (100, NONE)
       }
 
-  fun register (t, j) =
-    MLton.Thread.HierarchicalHeap.registerJStack (t, ref j)
+  val dummy = ref (new ())
 
-  fun current t : t =
-    let
-      val r: t ref = MLton.Thread.HierarchicalHeap.currentJStack t
-    in
-      !r
-    end
+  fun register (thread, j) =
+    MLton.Thread.HierarchicalHeap.registerJStack (thread, ref j)
+
+  fun current thread : t option =
+    case MLton.Thread.HierarchicalHeap.currentJStack (thread, dummy) of
+      NONE => NONE
+    | SOME r => SOME (!r)
 
 
   fun same (T j1, T j2) =

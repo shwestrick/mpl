@@ -77,7 +77,7 @@ signature MLTON_THREAD =
           val forkThread: thread -> Basic.p option
 
           val registerJStack: thread * 'a ref -> unit
-          val currentJStack: thread -> 'a ref
+          val currentJStack: thread * 'a ref -> 'a ref option
         end
 
       (* disentanglement checking *)

@@ -207,33 +207,36 @@ struct
   fun maybeActivateOne s (t: Thread.t) =
     case Stack.peekOldest s of
       SOME (_, f) =>
+        (* if trySpawn t then ... else ... *)
         if f t then (Stack.popOldest s; ()) else ()
     | NONE => ()
 
   fun jstackNew () =
     JStack {stack = Stack.new ()}
 
-  val jstacks: joinslot_stack option array =
-    Array.tabulate (P, fn _ => NONE)
+  (* val jstacks: joinslot_stack option array =
+    Array.tabulate (P, fn _ => NONE) *)
 
 
   (** SAM_NOTE: TODO: these functions are problematic for the write barrier.
     * The astack needs to be integrated with GC. Perhaps installed as a
     * special field of a thread? That would be nasty. *)
-  fun jstackSetCurrent astack =
+  (* fun jstackSetCurrent astack =
     ( dbgmsg' (fn _ => "set astack")
     ; Array.update (jstacks, myWorkerId (), SOME astack)
-    )
+    ) *)
   fun jstackSetCurrentNew t =
     ( dbgmsg' (fn _ => "set fresh astack")
     ; let
         val j as JStack {stack=jstack} = jstackNew ()
       in
         Stack.register (t, jstack);
-        Array.update (jstacks, myWorkerId (), SOME j)
+        (* Array.update (jstacks, myWorkerId (), SOME j); *)
+        ()
       end
     )
 
+(*
   fun jstackMaybeGetCurrent t =
     case Array.sub (jstacks, myWorkerId ()) of
       NONE => NONE
@@ -257,8 +260,19 @@ struct
           j
         end
     | NONE => die (fn _ => "bug: Scheduler.jstackGetCurrent: expected astack; found none")
+*)
 
-  fun jstackTakeCurrent t =
+  fun jstackMaybeGetCurrent t =
+    case Stack.current t of
+      SOME j => SOME (JStack {stack = j})
+    | NONE => NONE
+
+  fun jstackGetCurrent t =
+    case Stack.current t of
+      SOME j => JStack {stack = j}
+    | NONE => die (fn _ => "bug: Scheduler.jstackGetCurrent: expected astack; found none")
+
+  (* fun jstackTakeCurrent t =
     let
       val _ = Thread.atomicBegin ()
       val a = jstackGetCurrent t
@@ -266,7 +280,7 @@ struct
       Array.update (jstacks, myWorkerId (), NONE);
       Thread.atomicEnd ();
       a
-    end
+    end *)
 
   fun jstackPush t x =
     let
@@ -640,13 +654,13 @@ struct
           ; dbgmsg' (fn _ => "switching to do some GC stuff")
           ; setGCTask (myWorkerId ()) gcTaskData (* This communicates with the scheduler thread *)
           ; let
-              val a = jstackTakeCurrent thread
+              (* val a = jstackTakeCurrent thread *)
             in
               push (Continuation (thread, newDepth))
               ; assertAtomic "syncGC before returnToSched" 1
               ; returnToSchedEndAtomic ()
               ; assertAtomic "syncGC after returnToSched" 1
-              ; jstackSetCurrent a
+              (* ; jstackSetCurrent a *)
             end
           ; dbgmsg' (fn _ => "back from GC stuff")
           )
@@ -672,8 +686,9 @@ struct
       in
         if depth >= Queue.capacity orelse not (depthOkayForDECheck depth)
         then
-          ( JoinSlot.markUnsuccessful joinslot
-          ; true
+          ( ()
+          (* ; JoinSlot.markUnsuccessful joinslot *)
+          ; false
           )
         else
 
@@ -704,7 +719,7 @@ struct
 
         | SOME rightSideThread =>
             let
-              val gcj = spawnGC interruptedLeftThread
+              val gcj = (* spawnGC interruptedLeftThread *) NONE
 
               val _ = assertAtomic "spawn after spawnGC" 1
 
@@ -790,7 +805,7 @@ struct
                   * in anticipation of other processor taking over (in the
                   * case that we return to sched)
                   *)
-                val a = jstackTakeCurrent thread
+                (* val a = jstackTakeCurrent thread *)
               in
                 if decrementHitsZero incounter then
                   ()
@@ -802,7 +817,8 @@ struct
                   ; assertAtomic "syncEndAtomic after returnToSched" 1
                   );
 
-                jstackSetCurrent a
+                (* jstackSetCurrent a *)
+                ()
               end
 
             ; case HM.refDerefNoBarrier rightSideThread of
@@ -939,7 +955,10 @@ struct
           in
             case JoinSlot.cancel t j of
               JoinSlot.Empty =>
-                die (fn _ => "scheduler bug: leftSideParCont empty joinslot")
+                ( ()
+                (* ; (_import "XXYYZZ": unit -> unit;) () *)
+                ; die (fn _ => "scheduler bug: leftSideParCont empty joinslot")
+                )
             | JoinSlot.Full jp =>
                 let
                   val gres = syncEndAtomic jp g
@@ -978,7 +997,7 @@ struct
               * stack. If we end up switching to some other thread, then that
               * thread will reassign its own astack.
               *)
-            val _ = jstackTakeCurrent thread
+            (* val _ = jstackTakeCurrent thread *)
 
             val _ = assertAtomic "pcallFork rightside after jstackTake" 1
           in

@@ -136,6 +136,10 @@ pointer foreachObjptrInObject (GC_state s, pointer p,
              "  numObjptrs = %d\n",
              (uintptr_t)p, header, objectTypeTagToString (tag),
              bytesNonObjptrs, numObjptrs);
+  
+  // look at the header more closely and inspect the tag index
+  // if (index == THREAD_TYPE_INDEX) { thread specific code... }
+  
   if (NORMAL_TAG == tag) {
     p += bytesNonObjptrs;
     pointer max = p + (numObjptrs * OBJPTR_SIZE);

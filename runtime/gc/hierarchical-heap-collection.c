@@ -53,6 +53,12 @@ void forwardObjptrsOfRemembered(
 
 // void scavengeChunkOfPinnedObject(GC_state s, objptr op, void* rawArgs);
 
+struct findArrayInObjectArgs {
+  objptr foundIt;
+};
+
+void findArrayInObject(GC_state s, objptr *opp, objptr op, void* env);
+
 #if ASSERT
 void checkRememberedEntry(GC_state s, HM_remembered remElem, void* args);
 bool hhContainsChunk(HM_HierarchicalHeap hh, HM_chunk theChunk);
@@ -484,16 +490,30 @@ void HM_HHC_collectLocal(uint32_t desiredScope) {
    forwardHHObjptrArgs.objectsCopied,
    forwardHHObjptrArgs.stacksCopied);
 
-  // forward jstack hack
-  objptr jstack = pointerToObjptr(thread->jstack, NULL);
-  forwardHHObjptr(
-    s,
-    &jstack,
-    jstack,
-    &forwardHHObjptrArgs);
-  thread->jstack = objptrToPointer(jstack, NULL);
+  
+  if (thread->jstack != NULL) {
+    struct findArrayInObjectArgs fa = {.foundIt = BOGUS_OBJPTR};
+    struct GC_foreachObjptrClosure func = {.fun = findArrayInObject, .env = &fa};
+    foreachObjptrInObject(s, thread->jstack, &trueObjptrPredicateClosure, &func, FALSE);
+    if (!isObjptr(fa.foundIt)) DIE("no array inside jstack!");
+    pointer aa = objptrToPointer(fa.foundIt, NULL);
+    foreachObjptrInObject(
+      s,
+      aa,
+      &trueObjptrPredicateClosure,
+      &forwardHHObjptrClosure,
+      FALSE);
 
-  DIE("TODO: need to call foreachObjptrInObject on the jstack");
+    // forward jstack hack
+    objptr jstack = pointerToObjptr(thread->jstack, NULL);
+    forwardHHObjptr(
+      s,
+      &jstack,
+      jstack,
+      &forwardHHObjptrArgs);
+    thread->jstack = objptrToPointer(jstack, NULL);
+  }
+
 
   /* forward thread itself */
   LOG(LM_HH_COLLECTION, LL_DEBUG,
@@ -536,6 +556,8 @@ void HM_HHC_collectLocal(uint32_t desiredScope) {
       &forwardHHObjptrClosure,
       FALSE
     );
+
+    DIE("TODO: Need to handle jstack correctly... see above");
 
     objptr jstack = pointerToObjptr(
       threadObjptrToStruct(s, s->savedThreadDuringSignalHandler)->jstack,
@@ -1571,6 +1593,30 @@ GC_objectTypeTag computeObjectCopyParameters(GC_state s, pointer p,
 
     return tag;
 }
+
+
+void findArrayInObject(
+  GC_state s,
+  __attribute__((unused)) objptr *opp,
+  objptr op,
+  void* rawArgs)
+{
+  struct findArrayInObjectArgs *env = rawArgs;
+  if (env->foundIt != BOGUS_OBJPTR || !isObjptr(op))
+    return;
+
+  pointer p = objptrToPointer(op, NULL);
+  GC_objectTypeTag tag;
+  splitHeader(s, getHeader(p), &tag, NULL, NULL, NULL);
+  if (SEQUENCE_TAG == tag) {
+    env->foundIt = op;
+    return;
+  }  
+
+  struct GC_foreachObjptrClosure func = {.fun = findArrayInObject, .env = env};
+  foreachObjptrInObject(s, p, &trueObjptrPredicateClosure, &func, FALSE);
+}
+
 
 
 bool skipStackAndThreadObjptrPredicate(GC_state s,

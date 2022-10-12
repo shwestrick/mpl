@@ -242,15 +242,20 @@ objptr GC_HH_forkThread(GC_state s, pointer threadp, bool *success) {
 }
 
 
-void GC_HH_registerJSTack(GC_state s, pointer threadp, pointer jstackp) {
+void GC_HH_registerJStack(GC_state s, pointer threadp, pointer jstackp) {
   GC_thread thread = threadObjptrToStruct(s, pointerToObjptr(threadp, NULL));
   thread->jstack = jstackp;
 }
 
 
-objptr GC_HH_currentJSTack(GC_state s, pointer threadp) {
+Bool GC_HH_currentJStack(GC_state s, pointer threadp, objptr *output) {
   GC_thread thread = threadObjptrToStruct(s, pointerToObjptr(threadp, NULL));
-  return pointerToObjptr(thread->jstack, NULL);
+  objptr result = pointerToObjptr(thread->jstack, NULL);
+  if (isObjptr(result)) {
+    *output = result;
+    return TRUE;
+  }
+  return FALSE;
 }
 
 

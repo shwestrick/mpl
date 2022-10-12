@@ -402,7 +402,7 @@ structure Thread =
       val registerJStack = _import "GC_HH_registerJStack" runtime private:
         GCState.t * thread * 'a ref -> unit;
       val currentJStack = _import "GC_HH_currentJStack" runtime private:
-        GCState.t * thread -> 'a ref;
+        GCState.t * thread * ('a ref) ref -> bool;
    end
 
 structure Weak =

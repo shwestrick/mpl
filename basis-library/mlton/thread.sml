@@ -111,8 +111,16 @@ struct
   fun registerJStack (t, j) =
     Prim.registerJStack (gcState (), t, j)
 
-  fun currentJStack t =
-    Prim.currentJStack (gcState (), t)
+  fun currentJStack (t, dummy) =
+    let
+      val output = ref dummy
+      val success = Prim.currentJStack (gcState (), t, output)
+    in
+      case success of
+        false => NONE
+      | true => SOME (!output)
+    end
+      
 end
 
 structure Disentanglement =
