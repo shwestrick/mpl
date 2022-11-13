@@ -122,4 +122,8 @@ structure MLtonParallel:> MLTON_PARALLEL =
       then raise Subscript
       else Unsafe.arrayFetchAndAdd (xs, i) d
 
+    
+    fun semPost p = Prim.semPost (Primitive.MLton.GCState.gcState (), Word32.fromInt p)
+    fun semWait p = Prim.semWait (Primitive.MLton.GCState.gcState (), Word32.fromInt p)
+
   end

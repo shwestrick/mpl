@@ -216,6 +216,12 @@ structure Parallel =
 
       val arrayCompareAndSwap =
         _prim "Array_cas": 'a array * SeqIndex.int * 'a * 'a -> 'a;
+
+      val semWait =
+        _import "GC_semWait" runtime private: GCState.t * Word32.word -> unit;
+
+      val semPost =
+        _import "GC_semPost" runtime private: GCState.t * Word32.word -> unit;
    end
 
 structure Platform =

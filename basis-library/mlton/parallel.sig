@@ -124,4 +124,7 @@ signature MLTON_PARALLEL =
      * raises Subscript.
      *)
     val arrayFetchAndAdd : int array * int -> int -> int
+
+    val semPost: int -> unit
+    val semWait: int -> unit
   end

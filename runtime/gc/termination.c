@@ -82,11 +82,14 @@ bool GC_TryToTerminate(GC_state s) {
 
   /* Wait for the other processors to terminate. */
   for (uint32_t p = 0; p < s->numberOfProcs; p++)
-    if (p != myself && (NULL == s->procStates[p].currentCCTargetHH))
+    if (p != myself && (NULL == s->procStates[p].currentCCTargetHH)) {
+      sem_post(&(s->procStates[p].sem));
+      
       if (pthread_join(s->procStates[p].self, NULL) != 0) {
         perror("pthread_join");
         exit(1);
       }
+    }
 
   return true;
 }

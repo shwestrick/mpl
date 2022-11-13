@@ -403,3 +403,13 @@ void GC_registerQueueBot(uint32_t processor, pointer botPointer) {
   assert(processor < s->numberOfProcs);
   s->procStates[processor].wsQueueBot = pointerToObjptr(botPointer, NULL);
 }
+
+void GC_semPost(GC_state s, uint32_t processor) {
+  sem_post(&(s->procStates[processor].sem));
+}
+
+void GC_semWait(GC_state s, uint32_t processor) {
+  GC_MayTerminateThread(s);
+  sem_wait(&(s->procStates[processor].sem));
+  GC_MayTerminateThread(s);
+}

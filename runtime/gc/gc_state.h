@@ -77,6 +77,7 @@ struct GC_state {
                        */
   int (*saveGlobals)(FILE *f); /* saves the globals to the file. */
   bool saveWorldStatus; /* */
+  sem_t sem;
   objptr signalHandlerThread; /* Handler for signals (in heap). */
   struct GC_signalsInfo signalsInfo;
   struct GC_sourceMaps sourceMaps;
@@ -156,6 +157,9 @@ PRIVATE void GC_setSignalHandlerThreads (GC_state s, pointer p);
 PRIVATE void GC_registerQueue(uint32_t processor, pointer queuePointer);
 PRIVATE void GC_registerQueueTop(uint32_t processor, pointer topPointer);
 PRIVATE void GC_registerQueueBot(uint32_t processor, pointer botPointer);
+
+PRIVATE void GC_semPost(GC_state s, uint32_t processor);
+PRIVATE void GC_semWait(GC_state s, uint32_t processor);
 
 #endif /* (defined (MLTON_GC_INTERNAL_BASIS)) */
 
