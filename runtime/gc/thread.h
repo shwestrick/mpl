@@ -42,6 +42,7 @@ typedef struct GC_thread {
 
   /* unspent heartbeats */
   uint32_t spareHeartbeats;
+  uint32_t pcallFramesInStack;
 
   int32_t currentProcNum; /* the worker currently executing this thread */
   size_t bytesNeeded;
@@ -79,6 +80,7 @@ typedef struct GC_thread {
 COMPILE_TIME_ASSERT(GC_thread__packed,
                     sizeof(struct GC_thread) ==
                     sizeof(uint32_t) + // spareHeartbeats
+                    sizeof(uint32_t) + // pcallFramesInStack
                     sizeof(int32_t) +  // currentProcNum
                     sizeof(size_t) +  // bytesNeeded
                     sizeof(ptrdiff_t) +  // exnStack
@@ -98,6 +100,7 @@ COMPILE_TIME_ASSERT(GC_thread__packed,
 COMPILE_TIME_ASSERT(GC_thread__packed,
                     sizeof(struct GC_thread) ==
                     sizeof(uint32_t) + // spareHeartbeats
+                    sizeof(uint32_t) + // pcallFramesInStack
                     sizeof(int32_t) +  // currentProcNum
                     sizeof(size_t) +  // bytesNeeded
                     sizeof(ptrdiff_t) +  // exnStack
@@ -148,6 +151,9 @@ PRIVATE Bool GC_tryConsumeSpareHeartbeats(GC_state s, uint32_t count);
 PRIVATE uint32_t GC_addSpareHeartbeats(GC_state s, uint32_t spares);
 
 PRIVATE uint32_t GC_currentSpareHeartbeats(GC_state s);
+
+PRIVATE void GC_setPcallFramesInStack(GC_state s);
+PRIVATE Bool GC_mightBePcallFramesInStack(GC_state s);
 
 #endif /* MLTON_GC_INTERNAL_BASIS */
 

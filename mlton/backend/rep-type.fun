@@ -504,6 +504,8 @@ structure ObjectType =
                      Bits.toBytes (Control.Target.Size.normalMetaData ())
                   val bytesSpareHeartbeats =
                      Bits.toBytes (Type.width Type.word32)
+                  val bytesPcallFramesInStack =
+                     Bits.toBytes (Type.width Type.word32)
                   val bytesCurrentProcNum =
                      Bits.toBytes (Type.width Type.word32)
                   val bytesBytesNeeded =
@@ -537,6 +539,7 @@ structure ObjectType =
                      in
                         bytesMetaData +
                         bytesSpareHeartbeats +
+                        bytesPcallFramesInStack +
                         bytesCurrentProcNum +
                         bytesBytesNeeded +
                         bytesExnStack +
@@ -561,6 +564,7 @@ structure ObjectType =
             val components =
                Vector.fromList (
                   [Type.word32,
+                   Type.word32,
                    Type.word32,
                    Type.csize (),
                    Type.exnStack (),

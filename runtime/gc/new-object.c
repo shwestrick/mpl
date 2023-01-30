@@ -102,6 +102,7 @@ GC_thread newThread(GC_state s, size_t reserved) {
   thread = (GC_thread)(res + offsetofThread(s));
   /* a fresh thread is not currently being executed by any processor */
   thread->spareHeartbeats = 0;
+  thread->pcallFramesInStack = 0;
   thread->currentProcNum = -1;
   thread->bytesNeeded = 0;
   thread->exnStack = BOGUS_EXN_STACK;
@@ -185,6 +186,7 @@ GC_thread newThreadWithHeap(
   stack->used = 0;
 
   thread->spareHeartbeats = 0;
+  thread->pcallFramesInStack = 0;
   thread->currentProcNum = -1;
   thread->bytesNeeded = 0;
   thread->exnStack = BOGUS_EXN_STACK;

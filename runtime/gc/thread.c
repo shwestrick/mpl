@@ -207,12 +207,25 @@ Bool GC_tryConsumeSpareHeartbeats(GC_state s, uint32_t count) {
   return FALSE;
 }
 
+void GC_setPcallFramesInStack(GC_state s) {
+  getThreadCurrent(s)->pcallFramesInStack = 1;
+}
+
+
+Bool GC_mightBePcallFramesInStack(GC_state s) {
+  return (Bool)(getThreadCurrent(s)->pcallFramesInStack > 0);
+}
+
 
 bool GC_HH_canForkThread(GC_state s, pointer threadp) {
   enter(s);
   GC_thread thread = threadObjptrToStruct(s, pointerToObjptr(threadp, NULL));
   GC_stack fromStack = (GC_stack)objptrToPointer(thread->stack, NULL);
   pointer pframe = findPromotableFrame(s, fromStack);
+
+  if (NULL == pframe) {
+    thread->pcallFramesInStack = 0;
+  }
   leave(s);
   return NULL != pframe;
 }
@@ -302,7 +315,7 @@ objptr GC_HH_forkThread(GC_state s, pointer threadp, pointer jp) {
   GC_HH_copySyncDepthsFromThread(s, getThreadCurrentObjptr(s), copiedp, newDepth);
 
   uint32_t spares = getThreadCurrent(s)->spareHeartbeats;
-  uint32_t half = spares / 2;
+  uint32_t half = spares >> 1;
   copied->spareHeartbeats += half;
   getThreadCurrent(s)->spareHeartbeats -= half;
 
