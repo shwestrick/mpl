@@ -97,6 +97,19 @@ struct
   val currentSpareHeartbeats =
     (fn () => currentSpareHeartbeats (gcstate ()))
 
+
+  val setPcallFramesInStack =
+    _import "GC_setPcallFramesInStack" private: gcstate -> unit;
+  val setPcallFramesInStack =
+    (fn () => setPcallFramesInStack (gcstate ()))
+
+
+  val mightBePcallFramesInStack =
+    _import "GC_mightBePcallFramesInStack" private: gcstate -> bool;
+  val mightBePcallFramesInStack =
+    (fn () => mightBePcallFramesInStack (gcstate ()))
+
+
   structure Queue = DequeABP (*ArrayQueue*)
   structure Thread = MLton.Thread.Basic
 
@@ -193,6 +206,7 @@ struct
       , rightSideResult: 'a Result.t option ref
       , incounter: int ref
       , tidRight: Word64.word
+      , spareHeartbeatsGiven: int
       , gcj: gc_joinpoint option
       }
 
@@ -599,6 +613,7 @@ struct
     fun doSpawn (interruptedLeftThread: Thread.t) : unit =
       let
         val gcj = spawnGC interruptedLeftThread
+        val _ = tryConsumeSpareHeartbeats 0w1
 
         val _ = assertAtomic "spawn after spawnGC" 1
 
@@ -617,17 +632,27 @@ struct
 
         val (tidLeft, tidRight) = DE.decheckFork ()
 
+        val spareBeforeFork = currentSpareHeartbeats ()
+        val halfSpare = Word32.>> (spareBeforeFork, 0w1)
+
         val jp =
           J { leftSideThread = interruptedLeftThread
             , rightSideThread = rightSideThreadSlot
             , rightSideResult = rightSideResult
             , incounter = incounter
             , tidRight = tidRight
+            , spareHeartbeatsGiven = Word32.toInt halfSpare
             , gcj = gcj
             }
 
         (* this sets the join for both threads (left and right) *)
         val rightSideThread = primForkThread (interruptedLeftThread, jp)
+
+        (* sanity check *)
+        val spareAfterFork = currentSpareHeartbeats ()
+        val _ =
+          if spareBeforeFork - spareAfterFork = halfSpare then ()
+          else die (fn _ => "scheduler bug: miscalculated spares given")
 
         (* double check... hopefully correct, not off by one? *)
         val _ = push (NewThread (rightSideThread, depth))
@@ -664,6 +689,7 @@ struct
     fun doSpawnFunc (g: unit -> 'a) : 'a joinpoint =
       let
         val _ = Thread.atomicBegin ()
+        val _ = tryConsumeSpareHeartbeats 0w1
         val thread = Thread.current ()
         val gcj = spawnGC thread
 
@@ -683,11 +709,16 @@ struct
 
         val (tidLeft, tidRight) = DE.decheckFork ()
 
+        val currentSpare = currentSpareHeartbeats ()
+        val halfSpare = Word32.>> (currentSpare, 0w1)
+        val _ = tryConsumeSpareHeartbeats halfSpare
+
         fun g' () =
           let
             val () = HH.forceLeftHeap(myWorkerId(), Thread.current ())
             val () = DE.copySyncDepthsFromThread (thread, Thread.current (), depth+1)
             val () = DE.decheckSetTid tidRight
+            val _ = addSpareHeartbeats (Word32.toInt halfSpare)
             val _ = Thread.atomicEnd()
 
             val gr = Result.result g
@@ -737,6 +768,7 @@ struct
           , rightSideResult = rightSideResult
           , incounter = incounter
           , tidRight = tidRight
+          , spareHeartbeatsGiven = Word32.toInt halfSpare
           , gcj = gcj
           }
       end
@@ -755,7 +787,7 @@ struct
 
     (** Must be called in an atomic section. Implicit atomicEnd() *)
     fun syncEndAtomic
-        (J {rightSideThread, rightSideResult, incounter, tidRight, gcj, ...} : 'a joinpoint)
+        (J {rightSideThread, rightSideResult, incounter, tidRight, gcj, spareHeartbeatsGiven, ...} : 'a joinpoint)
         (g: unit -> 'a)
         : 'a Result.t
       =
@@ -780,6 +812,7 @@ struct
             ; HH.promoteChunks thread
             ; HH.setDepth (thread, newDepth)
             ; DE.decheckJoin (tidLeft, tidRight)
+            ; addSpareHeartbeats spareHeartbeatsGiven
             ; Thread.atomicEnd ()
             ; let
                 val gr = Result.result g
@@ -845,7 +878,7 @@ struct
               andalso i < numSpawnsPerHeartbeat
               andalso maybeSpawn thread
             then
-              ( tryConsumeSpareHeartbeats 0w1; loop (i+1) )
+              loop (i+1)
             else
               i
 
@@ -1069,6 +1102,58 @@ struct
       in
         pcallFork (f', g)
       end
+
+  
+    fun greedyWorkAmortizedOptFork (f, g) =
+      if currentSpareHeartbeats () = 0w0 then
+        ( setPcallFramesInStack ()
+        ; pcallFork (f, g)
+        )
+      else if mightBePcallFramesInStack () then
+        let
+          fun f' () = ( doPromoteNow (); f () )
+        in
+          pcallFork (f', g)
+        end
+      else
+        eagerFork1 (f, g)
+
+
+  (* if we have an indicator for how many pcalls there are:
+   *   - either the conservative boolean, OR
+   *   - an accurate count (by increment/decrement on every pcall)
+   * then we can do a nice trick:
+   *   - at C SIGNAL HANDLER, check how many pcall frames there are, and
+   *     if no pcalls, then bank the token and don't trigger a heartbeat signal.
+   *
+   * THE GOAL? to optimize away the overhead of walking the stack to check for
+   * pcalls, which might fail if there are no pcalls. (here, we additionally
+   * optimize away the cost of doing the thread switch to/from the signal
+   * handler thread!!!)
+   *)
+
+
+  (* and make currentSpareHeartbeats a prim... *)
+
+
+  (* at heartbeat:
+   * set conservativeExistsPCallAboveMe =
+   *   (if exists pcall frames then true else false)
+   *)
+
+  (*
+  fun greedyWorkAmortizedFork' (f, g) =
+    if currentSpareHeartbeats () = 0w0 then
+      ( set conservativeExistsPCallAboveMe = true    (* _import runtime function here shouldn't create signal safepoint so this is probably okay... *)
+      ; pcall
+      )
+    else
+      if conservativeExistsPCallAboveMe () then
+        self-heartbeat fork
+      else
+        MPL-closure fork
+  *)
+
 
   end
 
