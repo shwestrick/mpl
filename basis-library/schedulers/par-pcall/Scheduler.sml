@@ -57,7 +57,7 @@ struct
   val numSpawnsPerHeartbeat = parseInt "sched-num-spawns-per-heartbeat" 1
 
   val wealthPerHeartbeat = parseInt "sched-wealth-per-heartbeat" 100
-  val spawnCost = Word32.fromInt (parseInt "sched-spawn-cost" 10)
+  val spawnCost = Word32.fromInt (parseInt "sched-spawn-cost" 0)
   val joinCost = Word32.fromInt (parseInt "sched-join-cost" 0)
   val localJoinCost = Word32.fromInt (parseInt "sched-local-join-cost" 0)
 
@@ -670,8 +670,8 @@ struct
       in
         if depth >= Queue.capacity orelse not (depthOkayForDECheck depth) then
           false
-        else if not (HH.canForkThread interruptedLeftThread) then
-          false
+        (* else if not (HH.canForkThread interruptedLeftThread) then
+          false *)
         else
           ( doSpawn interruptedLeftThread
           ; true
@@ -895,7 +895,8 @@ struct
           else
             i
 
-        val numSpawned = loop 0
+        val numSpawned =
+          if generateWealth then 0 else loop 0
       in
         ()
       end

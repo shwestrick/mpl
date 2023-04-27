@@ -222,7 +222,8 @@ objptr GC_HH_forkThread(GC_state s, pointer threadp, pointer jp) {
   GC_thread thread = threadObjptrToStruct(s, pointerToObjptr(threadp, NULL));
   GC_stack fromStack = (GC_stack)objptrToPointer(thread->stack, NULL);
 
-  pointer pframe = findPromotableFrame(s, fromStack);
+  // pointer pframe = findPromotableFrame(s, fromStack);
+  pointer pframe = findYoungestPromotableFrame(s, fromStack);
   if (NULL == pframe) {
     DIE("forkThread failed!");
     leave(s);
