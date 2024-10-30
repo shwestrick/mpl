@@ -373,12 +373,14 @@ struct
 
   type worker_local_data =
     { queue : task Queue.t
+    , currentLabel: DePa.t option ref (* NOTE: different from the DePa labels used within the entanglement detector *)
     , schedThread : Thread.t option ref
     , gcTask: gctask_data option ref
     }
 
   fun wldInit p : worker_local_data =
     { queue = Queue.new ()
+    , currentLabel = ref NONE
     , schedThread = ref NONE
     , gcTask = ref NONE
     }
