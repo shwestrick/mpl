@@ -42,7 +42,7 @@ typedef struct GC_stack {
    * stack. Youngest at the top, oldest at the bottom. The compiler inserts
    * code to manage the promotion stack.
    * At every PCall:
-   *   promoStackTop = StackTop  // pointing to the current (now promotable) frame
+   *   *(pointer*)promoStackTop = StackTop  // pointing to the current (now promotable) frame
    *   promoStackTop += sizeof(pointer) 
    * At every seq (unpromoted) continuation:
    *   promoStackTop -= sizeof(pointer)

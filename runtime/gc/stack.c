@@ -139,7 +139,8 @@ size_t desiredPromoStackReserved(
   size_t reserved)
 {
   assert(isAligned(reserved, s->alignment));
-  size_t maxNumberOfFrames = reserved / minFrameSize(s);
+  // size_t maxNumberOfFrames = reserved / MAX(1, minFrameSize(s));
+  size_t maxNumberOfFrames = reserved / (sizeof(GC_returnAddress) + sizeof(objptr));
   return align(maxNumberOfFrames * (sizeof(pointer)), s->alignment);
 }
 
@@ -165,6 +166,16 @@ size_t getPromoStackBotOffsetInBytes(
   GC_state s,
   GC_stack stack)
 {
+#if ASSERT
+  if (stack->promoStackBot < getStackLimitPlusSlop(s, stack)) {
+    printf(
+      "stack->promoStackBot = "FMTPTR"\n"
+      "getStackLimitPlusSlop(s, stack) = "FMTPTR"\n",
+      stack->promoStackBot,
+      getStackLimitPlusSlop(s, stack));
+  }
+  assert(stack->promoStackBot >= getStackLimitPlusSlop(s, stack));
+#endif
   return (size_t)((uintptr_t)stack->promoStackBot - (uintptr_t)getStackLimitPlusSlop(s, stack));
 }
 
@@ -275,10 +286,42 @@ void copyStack (GC_state s, GC_stack from, GC_stack to) {
     getStackLimitPlusSlop(s, to) + getPromoStackBotOffsetInBytes(s, from);
   pointer toPromoTop = toPromoBot + getPromoStackSizeInBytes(s, from);
 
+#if ASSERT
+  if (!(
+    (to->promoStackReserved >= desiredPromoStackReserved(s, to->reserved))
+    &&
+    (getStackLimitPlusSlop(s, to) <= toPromoBot)
+    &&
+    (toPromoBot <= toPromoTop)
+    &&
+    (toPromoTop <= getStackLimitPlusSlop(s, to) + to->promoStackReserved)
+  )) {
+    printf(
+      "getPromoStackBotOffsetInBytes(s, from) = %zu\n"
+      "to->reserved = %zu\n"
+      "to->promoStackReserved = %zu\n"
+      "desiredPromoStackReserved(s, to->reserved) = %zu\n"
+      "getStackBottom(s, to) = "FMTPTR"\n"
+      "getStackLimitPlusSlop(s, to) = "FMTPTR"\n"
+      "toPromoBot = "FMTPTR"\n"
+      "toPromoTop = "FMTPTR"\n"
+      "getStackLimitPlusSlop(s, to) + to->promoStackReserved = "FMTPTR"\n",
+      getPromoStackBotOffsetInBytes(s, from),
+      to->reserved,
+      to->promoStackReserved,
+      desiredPromoStackReserved(s, to->reserved),
+      getStackBottom(s, to),
+      getStackLimitPlusSlop(s, to),
+      toPromoBot,
+      toPromoTop,
+      getStackLimitPlusSlop(s, to) + to->promoStackReserved
+    );
+  }
   assert(to->promoStackReserved >= desiredPromoStackReserved(s, to->reserved));
   assert(getStackLimitPlusSlop(s, to) <= toPromoBot);
   assert(toPromoBot <= toPromoTop);
   assert(toPromoTop <= getStackLimitPlusSlop(s, to) + to->promoStackReserved);
+#endif
 
   to->promoStackBot = toPromoBot;
   to->promoStackTop = toPromoTop;
@@ -375,6 +418,7 @@ pointer findPromotableFrame (GC_state s, GC_stack stack) {
   // );
 
   if (oldestCFrame == NULL) {
+    assert(stack->promoStackTop == stack->promoStackBot);
     return NULL;
   }
 
@@ -391,6 +435,7 @@ pointer findPromotableFrame (GC_state s, GC_stack stack) {
   //   left,
   //   right);
 
+  assert(*(pointer*)(stack->promoStackBot) == oldestCFrame);
   return oldestCFrame;
 }
 
@@ -437,8 +482,10 @@ pointer findYoungestPromotableFrame (GC_state s, GC_stack stack) {
         numFrames);
 
   if (youngestCFrame == NULL) {
+    assert(stack->promoStackTop == stack->promoStackBot);
     return NULL;
   }
 
+  assert(*(pointer*)(stack->promoStackTop - sizeof(pointer)) == youngestCFrame);
   return youngestCFrame;
 }

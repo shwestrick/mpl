@@ -25,7 +25,7 @@ struct GC_state {
   pointer stackLimit; /* stackBottom + stackSize - maxFrameSize */
   ptrdiff_t exnStack;
   pointer promoStackTop;
-  // pointer promoStackBot;
+  pointer promoStackBot;
   /* Alphabetized fields follow. */
   size_t alignment; /* */
   volatile bool amInGC;
