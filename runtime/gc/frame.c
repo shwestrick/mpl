@@ -37,3 +37,15 @@ GC_frameInfo getFrameInfoFromReturnAddress (GC_state s, GC_returnAddress ra) {
   frameInfo = getFrameInfoFromFrameIndex(s, frameIndex);
   return frameInfo;
 }
+
+/* SAM_NOTE: TODO: this could just be computed once at program startup. */
+uint16_t minFrameSize(GC_state s) {
+  uint16_t m = UINT16_MAX;
+  for (uint32_t fi = 0; fi < s->frameInfosLength; fi++) {
+    uint16_t sz = s->frameInfos[fi].size;
+    if (sz < m) {
+      m = sz;
+    }
+  }
+  return m;
+}

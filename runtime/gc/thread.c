@@ -511,6 +511,23 @@ objptr GC_HH_forkThread(GC_state s, bool youngestOptimization, pointer threadp, 
   return pointerToObjptr((pointer)copied - offsetofThread(s), NULL);
 }
 
+void setPromoStackBotOfCurrentThread(GC_state s, pointer newBot) {
+  GC_stack stack = getStackCurrent(s);
+  assert(getStackLimitPlusSlop(s, stack) <= newBot);
+  assert(newBot <= stack->promoStackTop);
+  assert(stack->promoStackTop <= getStackLimitPlusSlop(s, stack) + stack->promoStackReserved);
+
+  stack->promoStackBot = newBot;
+}
+
+void setPromoStackTopOfCurrentThread(GC_state s, pointer newTop) {
+  GC_stack stack = getStackCurrent(s);
+  assert(getStackLimitPlusSlop(s, stack) <= stack->promoStackBot);
+  assert(stack->promoStackBot <= newTop);
+  assert(newTop <= getStackLimitPlusSlop(s, stack) + stack->promoStackReserved);
+
+  stack->promoStackTop = newTop;
+}
 
 #endif /* MLTON_GC_INTERNAL_BASIS */
 

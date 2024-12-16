@@ -18,6 +18,7 @@ void enter (GC_state s) {
   GC_MayTerminateThread(s);
   /* used needs to be set because the mutator has changed s->stackTop. */
   getStackCurrent(s)->used = sizeofGCStateCurrentStackUsed (s);
+  setPromoStackTopOfCurrentThread(s, s->promoStackTop);
   getThreadCurrent(s)->exnStack = s->exnStack;
   getThreadCurrent(s)->spareHeartbeatTokens = s->spareHeartbeatTokens;
   HM_HH_updateValues(getThreadCurrent(s), s->frontier);
