@@ -64,7 +64,7 @@ int main (__attribute__ ((unused)) int argc,
   MkGCFieldOffset (limit);
   MkGCFieldOffset (limitPlusSlop);
   MkGCFieldOffset (promoStackTop);
-  // MkGCFieldOffset (promoStackBot);
+  MkGCFieldOffset (promoStackBot);
   MkGCFieldOffset (signalsInfo.signalIsPending);
   MkGCFieldOffset (spareHeartbeatTokens);
   MkGCFieldOffset (sourceMaps.curSourceSeqIndex);
