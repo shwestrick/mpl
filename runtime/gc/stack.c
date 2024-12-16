@@ -117,11 +117,16 @@ size_t alignStackReserved (GC_state s, size_t reserved) {
   return res;
 }
 
-size_t sizeofStackWithMetaData (ARG_USED_FOR_ASSERT GC_state s, size_t reserved) {
+size_t sizeofStackWithMetaData(
+  ARG_USED_FOR_ASSERT GC_state s,
+  size_t reserved,
+  size_t promoStackReserved) 
+{
   size_t res;
 
-  assert (isStackReservedAligned (s, reserved));
-  res = GC_STACK_METADATA_SIZE + sizeof (struct GC_stack) + reserved;
+  assert(isStackReservedAligned(s, reserved));
+  assert(isAligned(promoStackReserved, s->alignment));
+  res = GC_STACK_METADATA_SIZE + sizeof (struct GC_stack) + reserved + promoStackReserved;
   if (DEBUG_STACKS)
     fprintf (stderr, "%"PRIuMAX" = sizeofStackWithMetaData (%"PRIuMAX")\n",
              (uintmax_t)res, (uintmax_t)reserved);
@@ -129,11 +134,38 @@ size_t sizeofStackWithMetaData (ARG_USED_FOR_ASSERT GC_state s, size_t reserved)
   return res;
 }
 
+size_t desiredPromoStackReserved(
+  GC_state s,
+  size_t reserved)
+{
+  assert(isAligned(reserved, s->alignment));
+  size_t maxNumberOfFrames = reserved / minFrameSize(s);
+  return align(maxNumberOfFrames * (sizeof(pointer)), s->alignment);
+}
+
 size_t sizeofStackInitialReserved (GC_state s) {
   size_t res;
 
   res = alignStackReserved(s, sizeofStackSlop (s));
   return res;
+}
+
+size_t sizeofStackInitialPromoStackReserved (GC_state s) {
+  return desiredPromoStackReserved(s, sizeofStackInitialReserved(s));
+}
+
+size_t getPromoStackSizeInBytes(
+  __attribute__ ((unused)) GC_state s,
+  GC_stack stack)
+{
+  return (size_t)((uintptr_t)stack->promoStackTop - (uintptr_t)stack->promoStackBot);
+}
+
+size_t getPromoStackBotOffsetInBytes(
+  GC_state s,
+  GC_stack stack)
+{
+  return (size_t)((uintptr_t)stack->promoStackBot - (uintptr_t)getStackLimitPlusSlop(s, stack));
 }
 
 size_t sizeofStackMinimumReserved (GC_state s, GC_stack stack) {
@@ -234,6 +266,36 @@ void copyStack (GC_state s, GC_stack from, GC_stack to) {
              (uintptr_t)toBottom,
              (uintmax_t)from->used);
   GC_memcpy (fromBottom, toBottom, from->used);
+
+  /* copy and adjust promo stack */
+  pointer fromPromoBot = from->promoStackBot;
+  // pointer fromPromoTop = from->promoStackTop;
+  // size_t promoSize = getPromoStackSizeInBytes(s, from);
+  pointer toPromoBot =
+    getStackLimitPlusSlop(s, to) + getPromoStackBotOffsetInBytes(s, from);
+  pointer toPromoTop = toPromoBot + getPromoStackSizeInBytes(s, from);
+
+  assert(to->promoStackReserved >= desiredPromoStackReserved(s, to->reserved));
+  assert(getStackLimitPlusSlop(s, to) <= toPromoBot);
+  assert(toPromoBot <= toPromoTop);
+  assert(toPromoTop <= getStackLimitPlusSlop(s, to) + to->promoStackReserved);
+
+  to->promoStackBot = toPromoBot;
+  to->promoStackTop = toPromoTop;
+
+  /* For each element of the promo stack, copy it to the new promo stack.
+   * Each element is a pointer to a frame of the original call stack; these
+   * need to be adjusted for the new call stack (otherwise the new promo stack
+   * would danglingly point into the old stack).
+   */
+  size_t numPromoStackEntries = getPromoStackSizeInBytes(s, from) / sizeof(pointer);
+  for (size_t i = 0; i < numPromoStackEntries; i++) {
+    pointer elem = *(pointer*)(fromPromoBot + i * sizeof(pointer));
+    pointer newElem = toBottom + ((uintptr_t)elem - (uintptr_t)fromBottom);
+    assert(toBottom <= newElem);
+    assert(newElem <= toBottom + to->used);
+    *(pointer*)(toPromoBot + i * sizeof(pointer)) = newElem;
+  }
 }
 
 void copyStackFrameToNewStack (
@@ -251,6 +313,10 @@ void copyStackFrameToNewStack (
   pointer frameBottom = frame - fi->size;
   GC_memcpy(frameBottom, getStackBottom(s, to), fi->size);
   to->used = fi->size;
+
+  /* initialize empty promo stack */
+  to->promoStackBot = getStackLimitPlusSlop(s, to);
+  to->promoStackTop = getStackLimitPlusSlop(s, to);
 }
 
 pointer findPromotableFrame (GC_state s, GC_stack stack) {

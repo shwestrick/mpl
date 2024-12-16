@@ -73,4 +73,7 @@ static inline GC_frameIndex getFrameIndexFromReturnAddress (GC_state s, GC_retur
 static inline GC_frameInfo getFrameInfoFromFrameIndex (GC_state s, GC_frameIndex findex);
 static inline GC_frameInfo getFrameInfoFromReturnAddress (GC_state s, GC_returnAddress ra);
 
+/* Minimum size of any possible call-stack frame, computed from s->frameInfos */
+uint16_t minFrameSize(GC_state s);
+
 #endif /* (defined (MLTON_GC_INTERNAL_FUNCS)) */
