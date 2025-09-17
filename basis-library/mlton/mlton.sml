@@ -101,6 +101,7 @@ structure Real64 =
 structure Rlimit = MLtonRlimit
 structure Rusage = MLtonRusage
 structure Signal = MLtonSignal
+structure Simd = MLtonSimd
 structure Syslog = MLtonSyslog
 structure TextIO = MLtonIO (TextIO)
 structure Thread = MLtonThread

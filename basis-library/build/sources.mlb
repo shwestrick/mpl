@@ -371,6 +371,8 @@ in
    ann
       "allowFFI true"
    in
+      ../mlton/simd.sig
+      ../mlton/simd.sml
       ../mlton/parallel.sig
       ../mlton/parallel.sml
    end

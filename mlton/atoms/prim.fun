@@ -149,6 +149,7 @@ datatype 'a t =
  | Ref_deref of {readBarrier: bool} (* to ssa2 *)
  | Ref_ref (* to ssa2 *)
  | String_toWord8Vector (* defunctorize *)
+ | Simd_create_v8i8
  | Thread_atomicBegin (* to rssa *)
  | Thread_atomicEnd (* to rssa *)
  | Thread_atomicState (* to rssa *)
@@ -334,6 +335,7 @@ fun toString (n: 'a t): string =
        | Ref_deref {readBarrier=false} => "Ref_deref_noReadBarrier"
        | Ref_ref => "Ref_ref"
        | String_toWord8Vector => "String_toWord8Vector"
+       | Simd_create_v8i8 => "Simd_create_v8i8"
        | Thread_atomicBegin => "Thread_atomicBegin"
        | Thread_atomicEnd => "Thread_atomicEnd"
        | Thread_atomicState => "Thread_atomicState"
@@ -502,6 +504,7 @@ val equals: 'a t * 'a t -> bool =
     | (Ref_deref {readBarrier=rb1}, Ref_deref {readBarrier=rb2}) => (rb1 = rb2)
     | (Ref_ref, Ref_ref) => true
     | (String_toWord8Vector, String_toWord8Vector) => true
+    | (Simd_create_v8i8, Simd_create_v8i8) => true
     | (Thread_atomicBegin, Thread_atomicBegin) => true
     | (Thread_atomicEnd, Thread_atomicEnd) => true
     | (Thread_atomicState, Thread_atomicState) => true
@@ -680,6 +683,7 @@ val map: 'a t * ('a -> 'b) -> 'b t =
     | Ref_deref rb => Ref_deref rb
     | Ref_ref => Ref_ref
     | String_toWord8Vector => String_toWord8Vector
+    | Simd_create_v8i8 => Simd_create_v8i8
     | Thread_atomicBegin => Thread_atomicBegin
     | Thread_atomicEnd => Thread_atomicEnd
     | Thread_atomicState => Thread_atomicState
@@ -891,6 +895,7 @@ val kind: 'a t -> Kind.t =
        | Ref_deref _ => DependsOnState
        | Ref_ref => Moveable
        | String_toWord8Vector => Functional
+       | Simd_create_v8i8 => Functional
        | Thread_atomicBegin => SideEffect
        | Thread_atomicEnd => SideEffect
        | Thread_atomicState => DependsOnState
@@ -1077,6 +1082,7 @@ in
        Ref_deref {readBarrier=false},
        Ref_ref,
        String_toWord8Vector,
+       Simd_create_v8i8,
        Thread_atomicBegin,
        Thread_atomicEnd,
        Thread_atomicState,
@@ -1247,6 +1253,16 @@ fun 'a checkApp (prim: 'a t,
          andalso equals (arg3', arg 3)
          andalso equals (arg4', arg 4)
          andalso equals (arg5', arg 5)
+      fun eightArgs (arg0', arg1', arg2', arg3', arg4', arg5', arg6', arg7') () =
+         8 = Vector.length args
+         andalso equals (arg0', arg 0)
+         andalso equals (arg1', arg 1)
+         andalso equals (arg2', arg 2)
+         andalso equals (arg3', arg 3)
+         andalso equals (arg4', arg 4)
+         andalso equals (arg5', arg 5)
+         andalso equals (arg6', arg 6)
+         andalso equals (arg7', arg 7)
       fun nArgs args' () =
          Vector.equals (args', args, equals)
       fun done (args, result') =
@@ -1304,6 +1320,7 @@ fun 'a checkApp (prim: 'a t,
 
       val word8 = word WordSize.word8
       val word32 = word WordSize.word32
+      val word64 = word WordSize.word64
       fun intInfBinary () =
          noTargs (fn () => (threeArgs (intInf, intInf, csize), intInf))
       fun intInfShift () =
@@ -1456,6 +1473,7 @@ fun 'a checkApp (prim: 'a t,
        | Ref_cas _ => oneTarg (fn t => (threeArgs (reff t, t, t), t))
        | Ref_deref _ => oneTarg (fn t => (oneArg (reff t), t))
        | Ref_ref => oneTarg (fn t => (oneArg t, reff t))
+       | Simd_create_v8i8 => noTargs (fn () => (eightArgs (word8, word8, word8, word8, word8, word8, word8, word8), word64))
        | Thread_atomicBegin => noTargs (fn () => (noArgs, unit))
        | Thread_atomicEnd => noTargs (fn () => (noArgs, unit))
        | Thread_atomicState => noTargs (fn () => (noArgs, word32))

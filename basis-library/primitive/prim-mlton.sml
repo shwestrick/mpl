@@ -323,6 +323,12 @@ structure Profile =
       val setCurrent = _import "GC_setProfileCurrent" private : GCState.t * Data.t -> unit;
    end
 
+structure Simd = 
+   struct 
+      type v8i8 = Word64.word
+      val create_v8i8 = _prim "Simd_create_v8i8" : (Word8.word * Word8.word * Word8.word * Word8.word * Word8.word * Word8.word * Word8.word * Word8.word) -> v8i8;
+   end
+
 structure Thread =
    struct
       type preThread = PreThread.t
