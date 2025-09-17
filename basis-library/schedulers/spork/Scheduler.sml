@@ -1,6 +1,8 @@
-(* Author: Sam Westrick (swestric@cs.cmu.edu) *)
+(* Author: Sam Westrick (swestric@cs.cmu.edu)
+ * Adapted by Colin McDonald (colinmcd@cs.cmu.edu)
+ *)
 
-functor MkScheduler() =
+structure Scheduler =
 struct
 
   fun arraySub (a, i) = Array.sub (a, i)
@@ -38,40 +40,13 @@ struct
           NONE => die (fn _ => "Cannot parse integer from \"-" ^ key ^ " " ^ s ^ "\"")
         | SOME x => x
 
-  (* val spawnCost = Word32.fromInt (parseInt "sched-spawn-cost" 1) *)
-  val spawnCost = 0w1: Word32.word
-
   type gcstate = MLton.Pointer.t
   val gcstate = _prim "GC_state": unit -> gcstate;
 
-  val getHeartbeatMicroseconds =
-    _import "GC_getHeartbeatMicroseconds" runtime private: gcstate -> Word32.word;
-  val heartbeatMicroseconds =
-    LargeInt.fromInt (Word32.toInt (getHeartbeatMicroseconds (gcstate())))
-
-  val getHeartbeatRelayerThreshold =
-    _import "GC_getHeartbeatRelayerThreshold" runtime private: gcstate -> Word32.word;
-  val relayerThreshold =
-    Word32.toInt (getHeartbeatRelayerThreshold (gcstate ()))
-
-  val getWealthPerHeartbeat =
-    _import "GC_getHeartbeatTokens" runtime private: gcstate -> Word32.word;
-  val wealthPerHeartbeat =
-    Word32.toInt (getWealthPerHeartbeat (gcstate()))
-
-  val tryConsumeSpareHeartbeats =
-    _import "GC_tryConsumeSpareHeartbeats" runtime private: gcstate * Word32.word -> bool;
-  val tryConsumeSpareHeartbeats =
-    (fn w => tryConsumeSpareHeartbeats (gcstate (), w))
-  
-  val addSpareHeartbeats =
-    _import "GC_addSpareHeartbeats" runtime private: gcstate * Word32.word -> Word32.word;
-  val addSpareHeartbeats =
-    (fn i => Word32.toInt (addSpareHeartbeats (gcstate (), Word32.fromInt i)))
-
-  
-  val currentSpareHeartbeatTokens = _prim "Heartbeat_tokens": unit -> Word32.word;
-
+  datatype TokenPolicy =
+      TokenPolicyFair (* 0w0 *)
+    | TokenPolicyKeep (* 0w1 *)
+    | TokenPolicyGive (* 0w2 *)
 
   val traceSchedIdleEnter = _import "GC_Trace_schedIdleEnter" private: gcstate -> unit; o gcstate
   val traceSchedIdleLeave = _import "GC_Trace_schedIdleLeave" private: gcstate -> unit; o gcstate
@@ -86,19 +61,64 @@ struct
   structure Queue = DequeABP (*ArrayQueue*)
   structure Thread = MLton.Thread.Basic
 
-  val pcall = _prim "PCall":
-    ('a -> 'b)      (* left side *)
-    * 'a            (* left side argument *)
-    * ('b -> 'c)    (* sequential left-side continuation *)
-    * ('b -> 'c)    (* parallel left-side continuation (left-side sync code) *)
-    * ('d -> 'e)    (* parallel right-side task (+right-side sync code), no return allowed! *)
-    * 'd            (* parallel right-side argument *)
-    -> 'c;
+  val nextPromotionTokenPolicy =
+    _import "GC_HH_getNextPromotionTokenPolicy" runtime private: gcstate * Thread.t -> Word32.word;
+  val nextPromotionTokenPolicy =
+    (fn __inline_always__ thread => case nextPromotionTokenPolicy (gcstate (), thread) of
+                  0w0 => TokenPolicyFair
+                | 0w1 => TokenPolicyKeep
+                | 0w2 => TokenPolicyGive
+                | w => die (fn _ => "Unknown token policy " ^ Word32.toString w))
+  
+  val primSporkFair' =
+      _prim "spork_fair"
+        : ('aa -> 'ar)		(* body     *)
+        * 'aa			(* body arg *)
+        * ('ba * 'd -> 'br)	(* spwn     *)
+        * 'ba			(* spwn arg *)
+        * ('ar -> 'c)		(* seq      *)
+        * ('ar * 'd -> 'c)	(* sync     *)
+        * (exn -> 'c)		(* exn seq  *)
+        * (exn * 'd -> 'c)	(* exn sync *)
+        -> 'c;
+  val primSporkKeep' =
+      _prim "spork_keep"
+        : ('aa -> 'ar)		(* body     *)
+        * 'aa			(* body arg *)
+        * ('ba * 'd -> 'br)	(* spwn     *)
+        * 'ba			(* spwn arg *)
+        * ('ar -> 'c)		(* seq      *)
+        * ('ar * 'd -> 'c)	(* sync     *)
+        * (exn -> 'c)		(* exn seq  *)
+        * (exn * 'd -> 'c)	(* exn sync *)
+        -> 'c;
+  val primSporkGive' =
+      _prim "spork_give"
+        : ('aa -> 'ar)		(* body     *)
+        * 'aa			(* body arg *)
+        * ('ba * 'd -> 'br)	(* spwn     *)
+        * 'ba			(* spwn arg *)
+        * ('ar -> 'c)		(* seq      *)
+        * ('ar * 'd -> 'c)	(* sync     *)
+        * (exn -> 'c)		(* exn seq  *)
+        * (exn * 'd -> 'c)	(* exn sync *)
+        -> 'c;
+  fun __inline_always__ primSporkFair (body, spwn, seq, sync, exnseq, exnsync) =
+      __inline_always__ primSporkFair' (body, (), spwn, (), seq, sync, exnseq, exnsync)
+  fun __inline_always__ primSporkKeep (body, spwn, seq, sync, exnseq, exnsync) =
+      __inline_always__ primSporkKeep' (body, (), spwn, (), seq, sync, exnseq, exnsync)
+  fun __inline_always__ primSporkGive (body, spwn, seq, sync, exnseq, exnsync) =
+      __inline_always__ primSporkGive' (body, (), spwn, (), seq, sync, exnseq, exnsync)
+  
+  val primForkThreadAndSetData = _prim "spork_forkThreadAndSetData": Thread.t * 'a -> Thread.p;
+  val primForkThreadAndSetData_youngest = _prim "spork_forkThreadAndSetData_youngest": Thread.t * 'a -> Thread.p;
 
-  val primGetData = _prim "PCall_getData": unit -> 'a;
-
-  val primForkThreadAndSetData = _prim "PCall_forkThreadAndSetData": Thread.t * 'a -> Thread.p;
-  val primForkThreadAndSetData_youngest = _prim "PCall_forkThreadAndSetData_youngest": Thread.t * 'a -> Thread.p;
+  val findNextPromotableFrame =
+    _import "GC_HH_findNextPromotableFrame" runtime private: gcstate * bool * Thread.t -> bool;
+  val findNextPromotableFrame =
+      (fn __inline_always__ ({youngestOptimization}, p) =>
+          findNextPromotableFrame (gcstate (), youngestOptimization, p))
+      : {youngestOptimization: bool} * Thread.t -> bool;
 
   fun assertAtomic msg x =
     let
@@ -137,7 +157,6 @@ struct
   fun decrementHitsZero (x : int ref) : bool =
     faa (x, ~1) = 1
 
-
   datatype gc_joinpoint =
     GCJ of {gcTaskData: gctask_data option, tidRight: Word64.word}
     (** The fact that the gcTaskData is an option here is a questionable
@@ -153,7 +172,8 @@ struct
       , rightSideResult: 'a Result.t option ref
       , incounter: int ref
       , tidRight: Word64.word
-      , spareHeartbeatsGiven: int
+      , spareHeartbeatsGiven: Heartbeat.token_count
+      , tokenPolicy: TokenPolicy
       , gcj: gc_joinpoint option
       }
 
@@ -215,7 +235,7 @@ struct
       val notOkay =
         depth < Queue.capacity
         andalso depthOkayForDECheck depth
-        andalso currentSpareHeartbeatTokens () >= spawnCost
+        andalso Heartbeat.enoughToSpawn ()
         andalso HH.canForkThread thread
     in
       if notOkay then
@@ -246,6 +266,8 @@ struct
   val numHeartbeats = Array.array (P, 0)
   val numSkippedHeartbeats = Array.array (P, 0)
   val numSteals = Array.array (P, 0)
+  val numSlowJoins = Array.array (P, 0)
+  val numFastJoins = Array.array (P, 0)
 
   fun incrementNumSpawns () =
     let
@@ -287,6 +309,24 @@ struct
       arrayUpdate (numSteals, p, c+1)
     end
 
+  fun incrementNumSlowJoins () =
+    let
+      val p = myWorkerId ()
+      val c = arraySub (numSlowJoins, p)
+    in
+      arrayUpdate (numSlowJoins, p, c+1)
+      (* MLton.Parallel.arrayFetchAndAdd (numSlowJoins, p) 1 *)
+    end
+
+  fun incrementNumFastJoins () =
+    let
+      val p = myWorkerId ()
+      val c = arraySub (numFastJoins, p)
+    in
+      (* MLton.Parallel.arrayFetchAndAdd (numFastJoins, p) 1 *)
+      arrayUpdate (numFastJoins, p, c+1)
+    end
+
   fun numSpawnsSoFar () =
     Array.foldl op+ 0 numSpawns
 
@@ -301,6 +341,12 @@ struct
 
   fun numStealsSoFar () =
     Array.foldl op+ 0 numSteals
+
+  fun numSlowJoinsSoFar () =
+    Array.foldl op+ 0 numSlowJoins
+
+  fun numFastJoinsSoFar () =
+    Array.foldl op+ 0 numFastJoins
 
   (** ========================================================================
     * TIMERS
@@ -329,13 +375,6 @@ struct
         ; arrayUpdate (maxForkDepths, p, d)
         )
     end
-
-  (** ========================================================================
-    * SPARE HEARTBEATS
-    *)
-
-  fun splitSpares w =
-    Word32.>> (w, 0w1)
 
   (* ========================================================================
    * CHILD TASK PROTOTYPE THREAD
@@ -431,7 +470,6 @@ struct
       Queue.pushBot queue x
     end
 
-(*
   fun clear () =
     let
       val myId = myWorkerId ()
@@ -439,7 +477,6 @@ struct
     in
       Queue.clear queue
     end
-*)
 
   fun pop () =
     let
@@ -464,10 +501,10 @@ struct
     end
 
   (* ========================================================================
-   * FORK JOIN
+   * SPORK JOIN
    *)
 
-  structure ForkJoin =
+  structure SporkJoin =
   struct
 
     fun spawnGC interruptedThread : gc_joinpoint option =
@@ -552,7 +589,6 @@ struct
         doClearSuspects (thread, newDepth)
       end
 
-
     (* runs in signal handler *)
     fun doSpawn {youngestOptimization: bool} (interruptedLeftThread: Thread.t) : unit =
       let
@@ -575,25 +611,24 @@ struct
         val tidParent = DE.decheckGetTid thread
         val (tidLeft, tidRight) = DE.decheckFork ()
 
-        val _ = tryConsumeSpareHeartbeats spawnCost
-        val currentSpare = currentSpareHeartbeatTokens ()
-        val halfSpare =
-          let
-            val halfSpare = splitSpares currentSpare
-          in
-            ( tryConsumeSpareHeartbeats halfSpare
-            ; halfSpare
-            )
-          end
+        val _ = Heartbeat.consumeSpare Heartbeat.spawnCost
 
-
+        val tokenPolicy = nextPromotionTokenPolicy interruptedLeftThread
+        val giveTokens = case tokenPolicy of
+                             TokenPolicyFair => Heartbeat.halfOfCurrent ()
+                           | TokenPolicyKeep => Heartbeat.zero
+                           | TokenPolicyGive => Heartbeat.currentSpare ()
+        val _ = Heartbeat.consumeSpare giveTokens
+        (* val spareBefore = currentSpareHeartbeatTokens () *)
+        (* val spareHB = ref 0w0 *)
         val jp =
           J { leftSideThread = interruptedLeftThread
             , rightSideThread = rightSideThreadSlot
             , rightSideResult = rightSideResult
             , incounter = incounter
             , tidRight = tidRight
-            , spareHeartbeatsGiven = Word32.toInt halfSpare
+            , spareHeartbeatsGiven = giveTokens
+            , tokenPolicy = tokenPolicy
             , gcj = gcj
             }
 
@@ -603,6 +638,9 @@ struct
             primForkThreadAndSetData_youngest (interruptedLeftThread, jp)
           else
             primForkThreadAndSetData (interruptedLeftThread, jp)
+
+        (* determine how many heartbeats given to rhs from difference vs before *)
+        (* val _ = spareHB := spareBefore - currentSpareHeartbeatTokens () *)
 
         (* double check... hopefully correct, not off by one? *)
         val _ = push (NewThread (rightSideThread, tidParent, depth))
@@ -628,7 +666,7 @@ struct
       in
         if depth >= Queue.capacity orelse not (depthOkayForDECheck depth) then
           false
-        else if not (HH.canForkThread interruptedLeftThread) then
+        else if not (findNextPromotableFrame (youngestOptimization, interruptedLeftThread)) then
           false
         else
           ( doSpawn youngestOptimization interruptedLeftThread
@@ -663,16 +701,15 @@ struct
         val tidParent = DE.decheckGetTid thread
         val (tidLeft, tidRight) = DE.decheckFork ()
 
-        val currentSpare = currentSpareHeartbeatTokens ()
-        val halfSpare = splitSpares currentSpare
-        val _ = tryConsumeSpareHeartbeats halfSpare
+        val half = Heartbeat.halfOfCurrent ()
+        val _ = Heartbeat.consumeSpare half
 
         fun g' () =
           let
             val () = DE.copySyncDepthsFromThread (thread, Thread.current (), depth+1)
             val () = DE.decheckSetTid tidRight
             val () = HH.forceLeftHeap(myWorkerId(), Thread.current ())
-            val _ = addSpareHeartbeats (Word32.toInt halfSpare)
+            val _ = Heartbeat.addSpare half
             val _ = Thread.atomicEnd()
 
             val gr = Result.result g
@@ -723,7 +760,8 @@ struct
           , rightSideResult = rightSideResult
           , incounter = incounter
           , tidRight = tidRight
-          , spareHeartbeatsGiven = Word32.toInt halfSpare
+          , spareHeartbeatsGiven = half
+          , tokenPolicy = TokenPolicyFair
           , gcj = gcj
           }
       end
@@ -743,9 +781,8 @@ struct
     (** Must be called in an atomic section. Implicit atomicEnd() *)
     fun syncEndAtomic
         (doClearSuspects: Thread.t * int -> unit)
-        (J {rightSideThread, rightSideResult, incounter, tidRight, gcj, spareHeartbeatsGiven, ...} : 'a joinpoint)
-        (g: unit -> 'a)
-        : 'a Result.t
+        (J {rightSideThread, rightSideResult, incounter, tidRight, gcj, spareHeartbeatsGiven, tokenPolicy, ...} : 'a joinpoint)
+        : 'a Result.t option
       =
       let
         val _ = assertAtomic "syncEndAtomic begin" 1
@@ -764,22 +801,23 @@ struct
            * appropriately.)
            *)
           if popDiscard () then
-            ( dbgmsg'' (fn _ => "popDiscard success at depth " ^ Int.toString depth)
-
-            (* promote chunks into parent, update depth->newDepth, update
-             * decheck state by joining tidLeft and tidRight.
-             *)
-            ; HH.joinIntoParentBeforeFastClone
-                {thread=thread, newDepth=newDepth, tidLeft=tidLeft, tidRight=tidRight}
-
-            ; traceSchedJoinFast ()
-            ; Thread.atomicEnd ()
-
-            ; doClearSuspects (thread, newDepth)
-            ; if newDepth <> 1 then () else HH.updateBytesPinnedEntangledWatermark ()
-
-            ; Result.result g
-            )
+            let val _ = dbgmsg'' (fn _ => "popDiscard success at depth " ^ Int.toString depth)
+                (* promote chunks into parent, update depth->newDepth, update
+                 * decheck state by joining tidLeft and tidRight.
+                 *)
+                val _ = HH.joinIntoParentBeforeFastClone
+                          {thread=thread, newDepth=newDepth, tidLeft=tidLeft, tidRight=tidRight}
+                val _ = traceSchedJoinFast ()
+                val _ = Thread.atomicEnd ()
+                val _ = doClearSuspects (thread, newDepth)
+                val _ = if newDepth <> 1 then () else HH.updateBytesPinnedEntangledWatermark ()
+                val _ = case tokenPolicy of
+                            TokenPolicyGive => Heartbeat.addSpare spareHeartbeatsGiven
+                          | _ => Heartbeat.zero
+                val _ = incrementNumFastJoins ()
+            in
+              NONE
+            end
           else
             ( if decrementHitsZero incounter then
                 ()
@@ -808,6 +846,8 @@ struct
                       , tidRight = tidRight
                       }
 
+                    val _ = incrementNumSlowJoins ()
+
                     val _ = traceSchedJoin ()
 
                     (* SAM_NOTE: TODO: we really ought to make this part of
@@ -827,14 +867,13 @@ struct
                   in
                     doClearSuspects (thread, newDepth);
                     if newDepth <> 1 then () else HH.updateBytesPinnedEntangledWatermark ();
-                    result
+                    SOME result
                   end
             )
+        val _ = case gcj of
+                    NONE => ()
+                  | SOME gcj => syncGC doClearSuspects gcj;
       in
-        case gcj of
-          NONE => ()
-        | SOME gcj => syncGC doClearSuspects gcj;
-
         result
       end
 
@@ -850,14 +889,13 @@ struct
          * handler restores them.
          *)
 
-        val hadEnoughToSpawnBefore =
-          (currentSpareHeartbeatTokens () >= spawnCost)
+        val hadEnoughToSpawnBefore = Heartbeat.enoughToSpawn ()
 
-        val _ = addSpareHeartbeats wealthPerHeartbeat
+        val _ = Heartbeat.addSpare Heartbeat.tokensPerBeat
 
         fun loop i =
           if
-            currentSpareHeartbeatTokens () >= spawnCost
+            Heartbeat.enoughToSpawn ()
             andalso maybeSpawn {youngestOptimization = false} thread
           then
             loop (i+1)
@@ -892,7 +930,7 @@ struct
       * these to all processes
       *)
     val _ =
-      if P > relayerThreshold then () else
+      if P > Heartbeat.relayerThreshold then () else
         MLton.Signal.setHandler
           ( MLton.Itimer.signal MLton.Itimer.Real
           , MLton.Signal.Handler.inspectInterrupted
@@ -916,13 +954,14 @@ struct
       | SOME gj =>
           let
             val fr = Result.result f
-
             val _ = Thread.atomicBegin ()
-            val gr = syncEndAtomic maybeParClearSuspectsAtDepth gj g
+            val gro = syncEndAtomic maybeParClearSuspectsAtDepth gj
           in
-            (Result.extractResult fr; Result.extractResult gr)
+            Result.extractResult fr;
+            case gro of
+                NONE => g ()
+              | SOME gr => Result.extractResult gr
           end
-
 
     and maybeParClearSuspectsAtDepth (t, d) =
       if HH.numSuspectsAtDepth (t, d) <= 10000 then
@@ -946,8 +985,8 @@ struct
                 val mid = i + (j-i) div 2
               in
                 simpleParFork
-                  (fn _ => processLoop i mid,
-                   fn _ => processLoop mid j)
+                  (fn () => processLoop i mid,
+                   fn () => processLoop mid j)
               end
 
           fun commitLoop i =
@@ -968,7 +1007,7 @@ struct
       , maybeSpawn = maybeSpawn
       , setQueueDepth = setQueueDepth
       , returnToSchedEndAtomic = returnToSchedEndAtomic
-      , tryConsumeSpareHeartbeats = tryConsumeSpareHeartbeats
+      , tryConsumeSpareHeartbeats = Heartbeat.consumeSpare
       , addEagerSpawns = addEagerSpawns
       , assertAtomic = assertAtomic
       , error = (fn s => die (fn _ => s)) : string -> unit
@@ -979,38 +1018,46 @@ struct
     exception SchedulerError
 
     (* ===================================================================
-     * fork definition
+     * spork definition
      *)
 
+    fun __inline_always__ tryPromoteNow yo =
+      ( Thread.atomicBegin ()
+      ; if
+          Heartbeat.enoughToSpawn () andalso
+          #maybeSpawn (sched_package ()) yo (Thread.current ())
+        then
+          #addEagerSpawns (sched_package ()) 1
+        else
+          ()
+      ; Thread.atomicEnd ()
+      )
 
-    fun pcallFork (f: unit -> 'a, g: unit -> 'b) : 'a * 'b =
+    type ('a, 'c) sporkT =
+           (unit -> 'a)
+         * (unit * Universal.t joinpoint -> unit)
+         * ('a -> 'c)
+         * ('a * Universal.t joinpoint -> 'c)
+         * (exn -> 'c)
+         * (exn * Universal.t joinpoint -> 'c)
+         -> 'c
+
+    fun __inline_always__ sporkBase (primSpork: ('a, 'c) sporkT,
+                                     body: unit -> 'a,
+                                     spwn: unit -> 'b,
+                                     seq: 'a -> 'c,
+                                     sync: 'a * 'b -> 'c,
+                                     unstolen: 'a -> 'c): 'c =
       let
         val (inject, project) = Universal.embed ()
 
-        fun leftSide () =
-          Result.result f
+        fun __inline_always__ body' (): 'a =
+            ((if not (Heartbeat.enoughToSpawn ()) then () else tryPromoteNow {youngestOptimization = true});
+             __inline_always__ body ())
 
-        fun leftSideSequentialCont fres =
-          (Result.extractResult fres, g ())
-
-        fun leftSideParCont fres =
+        fun spwn' ((), J jp): unit =
           let
-            val _ = dbgmsg'' (fn _ => "hello from left-side par continuation")
-            val _ = Thread.atomicBegin ()
-            val _ = #assertAtomic (sched_package ()) "leftSideParCont" 1
-            val jp = primGetData ()
-            val gres = #syncEndAtomic (sched_package ()) jp (inject o g)
-          in
-            (Result.extractResult fres,
-             case project (Result.extractResult gres) of
-                SOME gres => gres
-              | _ => (#error (sched_package ()) "scheduler bug: leftSideParCont: failed project right-side result"; raise SchedulerError))
-          end
-
-        fun rightSide () =
-          let
-            val _ = #assertAtomic (sched_package ()) "pcallFork rightside begin" 1
-            val J jp = primGetData ()
+            val _ = #assertAtomic (sched_package ()) "spork rightside begin" 1
             val () = DE.decheckSetTid (#tidRight jp)
 
             val thread = Thread.current ()
@@ -1018,22 +1065,22 @@ struct
             val _ = dbgmsg'' (fn _ => "rightside begin at depth " ^ Int.toString depth)
 
             val _ = HH.forceLeftHeap(myWorkerId(), thread)
-            val _ = addSpareHeartbeats (#spareHeartbeatsGiven jp)
-            val _ = #assertAtomic (sched_package ()) "pcallfork rightSide before execute" 1
+            val _ = Heartbeat.addSpare (#spareHeartbeatsGiven jp)
+            val _ = #assertAtomic (sched_package ()) "spork rightSide before execute" 1
             val _ = Thread.atomicEnd()
 
-            val gr = Result.result (inject o g)
+            val spwnr = Result.result (inject o spwn)
 
             val _ = Thread.atomicBegin ()
             val depth' = HH.getDepth (Thread.current ())
             val _ =
               if depth = depth' then ()
-              else #error (sched_package ()) "scheduler bug: rightide depth mismatch"
+              else #error (sched_package ()) ("scheduler bug: rightide depth mismatch: " ^ Int.toString depth ^ " vs " ^ Int.toString depth')
             val _ = dbgmsg'' (fn _ => "rightside done! at depth " ^ Int.toString depth')
-            val _ = #assertAtomic (sched_package ()) "pcallFork rightside begin synchronize" 1
+            val _ = #assertAtomic (sched_package ()) "spork rightside begin synchronize" 1
           in
             #rightSideThread jp := SOME thread;
-            #rightSideResult jp := SOME gr;
+            #rightSideResult jp := SOME spwnr;
 
             if decrementHitsZero (#incounter jp) then
               ( ()
@@ -1048,50 +1095,70 @@ struct
                   * Switching threads is implicit atomicEnd(), so we need
                   * to be at atomic2
                   *)
-              ; #assertAtomic (sched_package ()) "pcallFork rightside switch-to-left" 2
+              ; #assertAtomic (sched_package ()) "spork rightside switch-to-left" 2
               ; threadSwitchEndAtomic (#leftSideThread jp)
               )
             else
               ( dbgmsg'' (fn _ => "rightside synchronize: back to sched")
-              ; #assertAtomic (sched_package ()) "pcallFork rightside before returnToSched" 1
+              ; #assertAtomic (sched_package ()) "spork rightside before returnToSched" 1
               ; #returnToSchedEndAtomic (sched_package ()) ()
               )
           end
+
+        fun __inline_always__ seq' (bodyr: 'a): 'c =
+            __inline_always__ seq bodyr
+
+        fun __inline_always__ sync' (bodyr: 'a, jp: Universal.t joinpoint): 'c =
+          let
+            val _ = dbgmsg'' (fn _ => "hello from sync continuation")
+            val _ = Thread.atomicBegin ()
+            val _ = #assertAtomic (sched_package ()) "sync continuation" 1
+            val spwnrOpt = #syncEndAtomic (sched_package ()) jp
+            val bodyr' = bodyr
+          in
+            case spwnrOpt of
+              (* spwn was unstolen *)
+                NONE => unstolen bodyr'
+              (* spwn was stolen and synced in syncEndAtomic *)
+              | SOME spwnr =>
+                case project (Result.extractResult spwnr) of
+                    SOME r => sync (bodyr', r)
+                  | NONE => (#error (sched_package ())
+                                    "scheduler bug: spork sync: failed project right-side result";
+                             raise SchedulerError)
+          end
+
+        fun __inline_always__ exnseq' (e: exn): 'c = raise e
+
+        fun __inline_always__ exnsync' (e: exn, jp: Universal.t joinpoint): 'c =
+            let val _ = dbgmsg'' (fn _ => "hello from exn sync continuation")
+                val _ = Thread.atomicBegin ()
+                val _ = #assertAtomic (sched_package ()) "exn sync continuation" 1
+                val _ = #syncEndAtomic (sched_package ()) jp
+            in
+              raise e
+            end
       in
-        pcall
-          ( leftSide
-          , ()
-          , leftSideSequentialCont
-          , leftSideParCont
-          , rightSide
-          , ()
-          )
+        __inline_always__ primSpork (body', spwn', seq', sync', exnseq', exnsync')
       end
 
-
-    fun greedyWorkAmortizedFork (f: unit -> 'a, g: unit -> 'b) : 'a * 'b =
-      let
-        fun f' () =
-          ( if currentSpareHeartbeatTokens () < spawnCost then
-              ()
-            else
-              ( Thread.atomicBegin ()
-              ; if
-                  currentSpareHeartbeatTokens () >= spawnCost andalso
-                  #maybeSpawn (sched_package ()) {youngestOptimization = true} (Thread.current ())
-                then
-                  #addEagerSpawns (sched_package ()) 1
-                else
-                  ()
-              ; Thread.atomicEnd ()
-              )
-
-          ; f ()
-          )
-      in
-        pcallFork (f', g)
-      end
-
+    fun __inline_always__ spork
+                          {tokenPolicy: TokenPolicy,
+                           body: unit -> 'a,
+                           spwn: unit -> 'b,
+                           seq: 'a -> 'c,
+                           sync: 'a * 'b -> 'c,
+                           unstolen: ('a -> 'c) option} =
+        let val primSpork = case tokenPolicy of
+                                TokenPolicyFair => primSporkFair
+                              | TokenPolicyGive => primSporkGive
+                              | TokenPolicyKeep => primSporkKeep
+            val unstolen = case unstolen of
+                               NONE => seq
+                             | SOME unstolen => unstolen
+        in
+          sporkBase (primSpork, body, spwn, seq, sync, unstolen)
+        end
   end
 
   (* ========================================================================
@@ -1107,11 +1174,10 @@ struct
     let
       val mySchedThread = Thread.current ()
       val _ = HH.setDepth (mySchedThread, 1)
-      val _ = HH.setMinLocalCollectionDepth (mySchedThread, 2)
+      val _ = HH.setMinLocalCollectionDepth (mySchedThread, 1)
 
       val myId = myWorkerId ()
-      val myRand = SMLNJRandom.rand (0, myId)
-      (*val myRand = SimpleRandom.rand myId*)
+      val myRand = SimpleRandom.rand myId
       val {queue=myQueue, schedThread, ...} =
         vectorSub (workerLocalData, myId)
       val _ = schedThread := SOME mySchedThread
@@ -1122,8 +1188,7 @@ struct
       (* ------------------------------------------------------------------- *)
 
       fun randomOtherId () =
-        (*let val other = SimpleRandom.boundedInt (0, P-1) myRand*)
-        let val other = SMLNJRandom.randRange (0, P-2) myRand
+        let val other = SimpleRandom.boundedInt (0, P-1) myRand
         in if other < myId then other else other+1
         end
 
@@ -1131,7 +1196,8 @@ struct
         let
           fun loop tries =
             if tries = P * 100 then
-              ( IdleTimer.tick ()
+              ( MLton.GC.collect ()
+              ; IdleTimer.tick ()
               ; traceSchedSleepEnter ()
               ; OS.Process.sleep (Time.fromNanoseconds (LargeInt.fromInt (P * 100)))
               ; traceSchedSleepLeave ()
@@ -1349,20 +1415,26 @@ struct
 
 
   val _ =
-    if P > relayerThreshold then () else
+    if P > Heartbeat.relayerThreshold then () else
       MLton.Itimer.set (MLton.Itimer.Real,
-        { interval = Time.fromMicroseconds heartbeatMicroseconds
-        , value = Time.fromMicroseconds heartbeatMicroseconds
+        { interval = Time.fromMicroseconds Heartbeat.interval
+        , value = Time.fromMicroseconds Heartbeat.interval
         })
 
 
   (* This might look silly, but don't remove it! See here:
    *   https://github.com/MPLLang/mpl/issues/190
-   * We have to ensure that there is always at least one use of PCall_getData
-   * in the program, otherwise the data argument of PCall_forkThreadAndSetData
+   * We have to ensure that there is always at least one use of spork_getData
+   * in the program, otherwise the data argument of spork_forkThreadAndSetData
    * will be optimized away, causing the compiler to crash because it doesn't
    * know how to pass a useless argument to the corresponding runtime func.
    *)
-  val ((), ()) = ForkJoin.pcallFork (fn () => (), fn () => ())
-
+  val () = SporkJoin.spork {
+        tokenPolicy = TokenPolicyFair,
+        body = fn () => (),
+        spwn = fn () => (),
+        seq  = fn () => (),
+        sync = fn ((), ()) => (),
+        unstolen = NONE
+      }
 end
