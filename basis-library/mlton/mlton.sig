@@ -47,6 +47,7 @@ signature MLTON =
       structure Rlimit: MLTON_RLIMIT
       structure Rusage: MLTON_RUSAGE
       structure Signal: MLTON_SIGNAL
+      structure Simd: MLTON_SIMD
       structure Syslog: MLTON_SYSLOG
       structure TextIO: MLTON_TEXT_IO
       structure Thread: MLTON_THREAD
